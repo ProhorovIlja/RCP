@@ -307,13 +307,22 @@ static void test_queue_recovery_and_sanitization()
     nax5RecoverReports(root, 1);
     expect(nax5CaptureReports(root, 1, 4), "crash journal recovers on next login");
     const auto part = nax5NextReportPart(root, 1);
-    expect(!part.archive.contains("DO-NOT-UPLOAD") && !part.archive.contains("SECRET-TOKEN"), "archive sanitizes credentials before durable storage");
-    expect(part.archive.contains("normal-stream-line"), "sanitization preserves diagnostic content");
     expect(part.kind == QStringLiteral("crash"), "recovered report marked unclean exit");
     expect(QFile::exists(QDir(root).filePath(b + QStringLiteral(".journal"))), "recovery does not consume another account's journal");
     expect(nax5NextReportPart(root, 2).path.isEmpty(), "account B still has independent capture");
     expect(nax5AcknowledgeReportPart(part), "first account ack works");
-    expect(!nax5NextReportPart(root, 1).path.isEmpty(), "one ack does not erase remaining parts");
+    const auto remaining = nax5NextReportPart(root, 1);
+    expect(!remaining.path.isEmpty(), "one ack does not erase remaining parts");
+    // The log chunk and its final manifest can have identical filesystem
+    // timestamps. Check both ZIPs without relying on their queue order.
+    const auto clean = [](const QByteArray &archive) {
+        return !archive.contains("DO-NOT-UPLOAD") && !archive.contains("SECRET-TOKEN");
+    };
+    expect(clean(part.archive) && clean(remaining.archive), "archives sanitize credentials before durable storage");
+    expect(part.archive.contains("normal-stream-line") || remaining.archive.contains("normal-stream-line"),
+        "sanitization preserves diagnostic content");
+    expect(nax5AcknowledgeReportPart(remaining) && nax5NextReportPart(root, 1).path.isEmpty(),
+        "one log chunk and its final manifest were captured");
 }
 
 static void write_old_file(const QString &path, const QByteArray &data)
