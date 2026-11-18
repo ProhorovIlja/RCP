@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <streamsession.h>
+#include "rcp/mouse_look.h"
+#include "rcp/audio_queue.h"
 #include "nax5/session/nax5sessionlifecycle.h"
 #ifdef NAX5_STREAM_REPLAY
 #include "nax5/nax5streamreplay.h"
@@ -233,6 +235,7 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		pi_decoder = CHIAKI_NEW(ChiakiPiDecoder);
 		if(chiaki_pi_decoder_init(pi_decoder, log.GetChiakiLog()) != CHIAKI_ERR_SUCCESS)
 			throw ChiakiException("Failed to initialize Raspberry Pi Decoder");
+		decoder_backend = QStringLiteral("MMAL");
 	}
 	else
 	{
@@ -254,10 +257,12 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		}
 		chiaki_log_sniffer_fini(&sniffer);
 		ffmpeg_decoder->log = GetChiakiLog();
+		decoder_backend = connect_info.hw_decoder.isEmpty()
+			? QStringLiteral("CPU") : connect_info.hw_decoder.toUpper();
 #if CHIAKI_LIB_ENABLE_PI_DECODER
 	}
 #endif
-	audio_volume = connect_info.audio_volume;
+	audio_volume.storeRelaxed(connect_info.audio_volume);
 	start_mic_unmuted = connect_info.start_mic_unmuted;
 	audio_out_device_name = connect_info.audio_out_device;
 	audio_in_device_name = connect_info.audio_in_device;
@@ -335,6 +340,8 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	}
 
 	chiaki_controller_state_set_idle(&keyboard_state);
+    chiaki_controller_state_set_idle(&rcp_mouse_state);
+    chiaki_controller_state_set_idle(&rcp_key_state);
 	chiaki_controller_state_set_idle(&touch_state);
 	touch_tracker=QMap<int, uint8_t>();
 	mouse_touch_id=-1;
@@ -509,24 +516,12 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 			pending_frames_lost = total;
 		}
 	});
-
-	StartAudioOutDrainThread();
 }
 
 StreamSession::~StreamSession()
 {
 	mic_active.storeRelaxed(false);
-	StopAudioOutDrainThread();
-	if(audio_out)
-		SDL_CloseAudioDevice(audio_out);
-	{
-		QMutexLocker locker(&audio_out_ring_mutex);
-		audio_out_ring_buf.clear();
-		audio_out_ring_read_pos = 0;
-		audio_out_ring_write_pos = 0;
-		audio_out_ring_fill = 0;
-		audio_out_overflow_logged = false;
-	}
+	CloseAudioOutput();
 	if(audio_in)
 		SDL_CloseAudioDevice(audio_in);
 
@@ -768,6 +763,81 @@ void StreamSession::HandleMouseMoveEvent(QMouseEvent *event, qreal width, qreal 
 			mouse_touch_id=chiaki_controller_state_start_touch(&keyboard_state, (uint16_t)psx, (uint16_t)psy);	
 	}
 	SendFeedbackState();
+}
+
+void StreamSession::ResetRcpInput()
+{
+    rcp_keys.clear();
+    chiaki_controller_state_set_idle(&rcp_mouse_state);
+    chiaki_controller_state_set_idle(&rcp_key_state);
+    chiaki_controller_state_set_idle(&keyboard_state);
+    mouse_touch_id = -1;
+    SendFeedbackState();
+}
+
+void StreamSession::SetRcpMouseLook(int x, int y)
+{
+    if (rcp_mouse_state.right_x == x && rcp_mouse_state.right_y == y)
+        return;
+    rcp_mouse_state.right_x = static_cast<int16_t>(x);
+    rcp_mouse_state.right_y = static_cast<int16_t>(y);
+    SendFeedbackState();
+}
+
+void StreamSession::SetRcpMouseButton(Qt::MouseButton button, bool pressed)
+{
+    switch (button) {
+        case Qt::LeftButton: rcp_mouse_state.r2_state = pressed ? 0xff : 0; break;
+        case Qt::RightButton: rcp_mouse_state.l2_state = pressed ? 0xff : 0; break;
+        case Qt::MiddleButton:
+            if (pressed)
+                rcp_mouse_state.buttons |= CHIAKI_CONTROLLER_BUTTON_R3;
+            else
+                rcp_mouse_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_R3;
+            break;
+        default: return;
+    }
+    SendFeedbackState();
+}
+
+bool StreamSession::HandleRcpKey(QKeyEvent *event)
+{
+    static const QMap<int, uint32_t> buttons{
+        {Qt::Key_Space, CHIAKI_CONTROLLER_BUTTON_CROSS},
+        {Qt::Key_E, CHIAKI_CONTROLLER_BUTTON_PYRAMID},
+        {Qt::Key_R, CHIAKI_CONTROLLER_BUTTON_BOX},
+        {Qt::Key_Control, CHIAKI_CONTROLLER_BUTTON_MOON},
+        {Qt::Key_Shift, CHIAKI_CONTROLLER_BUTTON_L3},
+        {Qt::Key_C, CHIAKI_CONTROLLER_BUTTON_R3},
+        {Qt::Key_Q, CHIAKI_CONTROLLER_BUTTON_L1},
+        {Qt::Key_F, CHIAKI_CONTROLLER_BUTTON_R1},
+        {Qt::Key_Tab, CHIAKI_CONTROLLER_BUTTON_TOUCHPAD},
+        {Qt::Key_Return, CHIAKI_CONTROLLER_BUTTON_OPTIONS},
+        {Qt::Key_Up, CHIAKI_CONTROLLER_BUTTON_DPAD_UP},
+        {Qt::Key_Down, CHIAKI_CONTROLLER_BUTTON_DPAD_DOWN},
+        {Qt::Key_Left, CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT},
+        {Qt::Key_Right, CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT}
+    };
+    const int key = event->key();
+    if (!buttons.contains(key) && key != Qt::Key_W && key != Qt::Key_A && key != Qt::Key_S && key != Qt::Key_D)
+        return false;
+    if (event->isAutoRepeat())
+        return true;
+
+    if (event->type() == QEvent::KeyPress)
+        rcp_keys.insert(key);
+    else
+        rcp_keys.remove(key);
+    const bool left = rcp_keys.contains(Qt::Key_A), right = rcp_keys.contains(Qt::Key_D);
+    const bool up = rcp_keys.contains(Qt::Key_W), down = rcp_keys.contains(Qt::Key_S);
+    const bool diagonal = (left != right) && (up != down);
+    rcp_key_state.left_x = rcp::movementAxis(left, right, diagonal);
+    rcp_key_state.left_y = rcp::movementAxis(up, down, diagonal);
+    rcp_key_state.buttons = 0;
+    for (int held : rcp_keys)
+        rcp_key_state.buttons |= buttons.value(held);
+    SendFeedbackState();
+    return true;
 }
 
 void StreamSession::HandleKeyboardEvent(QKeyEvent *event)
@@ -1080,6 +1150,8 @@ void StreamSession::DpadSendFeedbackState()
 	chiaki_controller_state_or(&state, &state, &sdeck_state);
 #endif
 	chiaki_controller_state_or(&state, &state, &keyboard_state);
+    chiaki_controller_state_or(&state, &state, &rcp_mouse_state);
+    chiaki_controller_state_or(&state, &state, &rcp_key_state);
 	chiaki_controller_state_or(&state, &state, &touch_state);
 
 	if(input_block)
@@ -1136,6 +1208,8 @@ void StreamSession::SendFeedbackState()
 	chiaki_controller_state_or(&state, &state, &sdeck_state);
 #endif
 	chiaki_controller_state_or(&state, &state, &keyboard_state);
+    chiaki_controller_state_or(&state, &state, &rcp_mouse_state);
+    chiaki_controller_state_or(&state, &state, &rcp_key_state);
 	chiaki_controller_state_or(&state, &state, &touch_state);
 
 	if(input_block)
@@ -1169,19 +1243,37 @@ void StreamSession::SendFeedbackState()
 			dpad_touch_stop_timer->start(NEW_DPAD_TOUCH_INTERVAL_MS);
 	}
 	chiaki_controller_state_or(&state, &state, &dpad_touch_state);
+#ifdef NAX5_STREAM_REPLAY
+	if(nax5StreamReplayActive())
+	{
+		nax5StreamReplayInputState(state);
+		return;
+	}
+#endif
 	chiaki_session_set_controller_state(&session, &state);
 }
 
-void StreamSession::InitAudio(unsigned int channels, unsigned int rate)
+void StreamSession::CloseAudioOutput()
 {
+	audio_out_accepting.storeRelease(0);
 	StopAudioOutDrainThread();
-	allow_unmute = true;
-	if(start_mic_unmuted)
-		ToggleMute();
 	if(audio_out)
 	{
+		// SDL finishes the device callback before its ring is reset.
 		SDL_CloseAudioDevice(audio_out);
 		audio_out = 0;
+	}
+	if(audio_out_pull_active.loadAcquire())
+	{
+		CHIAKI_LOGI(log.GetChiakiLog(),
+			"Audio pull summary: underruns=%u busy_callbacks=%u discarded_pcm_bytes=%llu",
+			static_cast<unsigned int>(audio_out_pull_starves.fetchAndStoreRelaxed(0)),
+			static_cast<unsigned int>(audio_out_pull_busy.fetchAndStoreRelaxed(0)),
+			static_cast<unsigned long long>(audio_out_pull_discarded.fetchAndStoreRelaxed(0)));
+	}
+	{
+		QMutexLocker locker(&audio_out_pull_mutex);
+		audio_out_pull.reset();
 	}
 	{
 		QMutexLocker locker(&audio_out_ring_mutex);
@@ -1191,23 +1283,71 @@ void StreamSession::InitAudio(unsigned int channels, unsigned int rate)
 		audio_out_ring_fill = 0;
 		audio_out_overflow_logged = false;
 	}
+}
+
+void StreamSession::InitAudio(unsigned int channels, unsigned int rate)
+{
+	CloseAudioOutput();
+	audio_out_pull_active.storeRelease(0);
+	if(!channels || channels > 255 || !rate || rate > 0x7fffffffu)
+	{
+		CHIAKI_LOGW(log.GetChiakiLog(), "Ignoring invalid game audio format");
+		return;
+	}
+
+	allow_unmute = true;
+	if(start_mic_unmuted)
+		ToggleMute();
 
 	SDL_AudioSpec spec = {0};
 	spec.freq = rate;
 	spec.channels = channels;
 	spec.format = AUDIO_S16SYS;
 	audio_out_sample_size = sizeof(int16_t) * channels;
+	audio_out_pcm_rate = rate;
 	spec.samples = audio_buffer_size / audio_out_sample_size;
 
-	SDL_AudioSpec obtained;
-	audio_out = SDL_OpenAudioDevice(audio_out_device_name.isEmpty() ? nullptr : qUtf8Printable(audio_out_device_name), false, &spec, &obtained, false);
+#ifdef Q_OS_WIN
+	const bool request_pull = qgetenv("RCP_AUDIO_PULL") == "1";
+#else
+	const bool request_pull = false;
+#endif
+	SDL_AudioSpec obtained = {};
+	bool pull_opened = false;
+	auto open = [&](const char *name) {
+		if(request_pull)
+		{
+			SDL_AudioSpec pull_spec = spec;
+			pull_spec.samples = rcp::AudioPullBuffer::requestedFrames;
+			pull_spec.callback = &StreamSession::PullAudioCallback;
+			pull_spec.userdata = this;
+			const auto dev = SDL_OpenAudioDevice(name, false, &pull_spec, &obtained, 0);
+			if(dev && obtained.samples && obtained.freq == spec.freq && obtained.channels == spec.channels &&
+				obtained.format == spec.format)
+			{
+				pull_opened = true;
+				return dev;
+			}
+			if(dev)
+			{
+				SDL_CloseAudioDevice(dev);
+				CHIAKI_LOGW(log.GetChiakiLog(), "Experimental audio pull format changed, trying queued audio");
+			}
+			else
+				CHIAKI_LOGW(log.GetChiakiLog(), "Experimental audio pull unavailable, trying queued audio: %s", SDL_GetError());
+		}
+		return SDL_OpenAudioDevice(name, false, &spec, &obtained, 0);
+	};
+
+	const auto preferred = audio_out_device_name.toUtf8();
+	audio_out = open(preferred.isEmpty() ? nullptr : preferred.constData());
 	if(!audio_out)
 	{
 		CHIAKI_LOGE(log.GetChiakiLog(), "Failed to open Audio Output Device '%s': %s", qPrintable(audio_out_device_name), SDL_GetError());
 		if(audio_out_device_name.isEmpty())
 			return;
 		audio_out_device_name.clear();
-		audio_out = SDL_OpenAudioDevice(nullptr, false, &spec, &obtained, false);
+		audio_out = open(nullptr);
 		if(!audio_out)
 		{
 			CHIAKI_LOGE(log.GetChiakiLog(), "Failed to open default Audio Output Device: %s", SDL_GetError());
@@ -1222,20 +1362,67 @@ void StreamSession::InitAudio(unsigned int channels, unsigned int rate)
 			"Audio output '%s' opened with converted format %#x, %u channels @ %u Hz (requested %#x, %u channels @ %u Hz)",
 			qPrintable(audio_out_device_name), obtained.format, obtained.channels, obtained.freq, spec.format, spec.channels, spec.freq);
 
+	if(pull_opened)
+	{
+		QMutexLocker locker(&audio_out_pull_mutex);
+		audio_out_pull.reset(audio_out_sample_size, obtained.samples);
+		audio_out_pull_starves.storeRelaxed(0);
+		audio_out_pull_busy.storeRelaxed(0);
+		audio_out_pull_discarded.storeRelaxed(0);
+	}
+	else
 	{
 		QMutexLocker locker(&audio_out_ring_mutex);
-		audio_out_ring_buf.resize((int)(audio_buffer_size * 8));
-		audio_out_ring_read_pos = 0;
-		audio_out_ring_write_pos = 0;
-		audio_out_ring_fill = 0;
-		audio_out_overflow_logged = false;
+		audio_out_ring_buf.resize(static_cast<qsizetype>(rcp::wholePcmFrames(size_t(audio_buffer_size) * 8, audio_out_sample_size)));
 	}
 
+	audio_out_pull_active.storeRelease(pull_opened);
+	if(!pull_opened)
+		StartAudioOutDrainThread();
+	audio_out_accepting.storeRelease(1);
 	SDL_PauseAudioDevice(audio_out, 0);
-	StartAudioOutDrainThread();
 
-	CHIAKI_LOGI(log.GetChiakiLog(), "Audio Device '%s' opened with %u channels @ %d Hz, buffer size %u",
-				qPrintable(audio_out_device_name), obtained.channels, obtained.freq, obtained.size);
+	CHIAKI_LOGI(log.GetChiakiLog(), "Audio Device '%s' opened with %u channels @ %d Hz, buffer size %u, output=%s",
+				qPrintable(audio_out_device_name), obtained.channels, obtained.freq, obtained.size,
+				pull_opened ? "experimental-pull" : "queued");
+}
+
+void SDLCALL StreamSession::PullAudioCallback(void *userdata, Uint8 *pcm, int length)
+{
+	if(length <= 0)
+		return;
+	auto *self = static_cast<StreamSession *>(userdata);
+	// The device thread never waits for the producer or the GUI stats query.
+	if(!self->audio_out_pull_mutex.tryLock())
+	{
+		std::memset(pcm, 0, static_cast<size_t>(length));
+		self->audio_out_pull_busy.fetchAndAddRelaxed(1);
+		return;
+	}
+	const auto rendered = self->audio_out_pull.render(pcm, static_cast<size_t>(length));
+	self->audio_out_pull_mutex.unlock();
+	if(rendered.starved)
+		self->audio_out_pull_starves.fetchAndAddRelaxed(1);
+}
+
+double StreamSession::audioClientBufferedMs()
+{
+	// GUI thread only, like InitAudio: the output device is stable during this query.
+	if(!audio_out)
+		return -1.0;
+	if(audio_out_pull_active.loadAcquire())
+	{
+		QMutexLocker locker(&audio_out_pull_mutex);
+		return rcp::bufferedAudioMs(audio_out_pull.pending(), audio_out_sample_size, audio_out_pcm_rate);
+	}
+
+	size_t pending = 0;
+	{
+		QMutexLocker locker(&audio_out_ring_mutex);
+		pending = audio_out_ring_fill;
+	}
+	return rcp::bufferedAudioMs(pending + SDL_GetQueuedAudioSize(audio_out),
+		audio_out_sample_size, audio_out_pcm_rate);
 }
 
 void StreamSession::InitMic(unsigned int channels, unsigned int rate)
@@ -1812,68 +1999,74 @@ void StreamSession::ConnectSdeckHaptics()
 
 void StreamSession::PushAudioFrame(int16_t *og_buf, size_t samples_count)
 {
-	if(!audio_out || !audio_volume)
+	const int volume = audio_volume.loadRelaxed();
+	if(!audio_out_accepting.loadAcquire() || volume <= 0 || !samples_count)
 		return;
 
-	QByteArray buf((int)(samples_count * audio_out_sample_size), 0);
-
-	// qDebug() << "Audio queue" << (SDL_GetQueuedAudioSize(audio_out) / audio_out_sample_size / samples_count) * 10 << "ms";
-	// If the SDL queue runs away, drop the stale backlog and resume from the latest frame.
-	if(SDL_GetQueuedAudioSize(audio_out) > 3 * audio_buffer_size)
+	const auto byte_count = samples_count * audio_out_sample_size;
+	// Opus data stays valid for this call. The ring copies it before we return.
+	const char *pcm = reinterpret_cast<const char *>(og_buf);
+	QByteArray scaled;
+	if(volume < SDL_MIX_MAXVOLUME)
 	{
-		CHIAKI_LOGW(log.GetChiakiLog(), "Audio queue exceeded latency threshold, clearing queued audio");
-		SDL_ClearQueuedAudio(audio_out);
-		QMutexLocker locker(&audio_out_ring_mutex);
-		audio_out_ring_read_pos = 0;
-		audio_out_ring_write_pos = 0;
-		audio_out_ring_fill = 0;
-		audio_out_overflow_logged = false;
+		scaled = QByteArray(static_cast<qsizetype>(byte_count), 0);
+		SDL_MixAudioFormat(reinterpret_cast<uint8_t *>(scaled.data()),
+			reinterpret_cast<const uint8_t *>(pcm), AUDIO_S16SYS, static_cast<Uint32>(byte_count), volume);
+		pcm = scaled.constData();
 	}
-	if(audio_volume < SDL_MIX_MAXVOLUME)
-		SDL_MixAudioFormat((uint8_t *)buf.data(), (uint8_t *)og_buf, AUDIO_S16SYS, buf.size(), audio_volume);
-	else
-		memcpy(buf.data(), og_buf, (size_t)buf.size());
+
 #if CHIAKI_GUI_ENABLE_SPEEX
-	// change samples to mono for processing with SPEEX
+	// Echo cancellation consumes the exact PCM submitted to playback.
 	if(echo_resampler_buf && speech_processing_enabled && !muted)
 	{
-		if(buf.size() != (int)(mic_buf.size_bytes * 2))
+		if(byte_count != size_t(mic_buf.size_bytes) * 2)
 		{
 			CHIAKI_LOGW(log.GetChiakiLog(),
-				"Skipping echo reference frame with unexpected size %d, expected %u",
-				buf.size(), mic_buf.size_bytes * 2);
-			goto queue_audio;
+				"Skipping echo reference frame with unexpected size %zu, expected %u",
+				byte_count, mic_buf.size_bytes * 2);
 		}
-		SDL_AudioCVT cvt = echo_speex_cvt;
-		cvt.len = mic_buf.size_bytes * 2;
-		cvt.buf = echo_resampler_buf;
-		memcpy(echo_resampler_buf, buf.constData(), mic_buf.size_bytes * 2);
-		if(SDL_ConvertAudio(&cvt) != 0)
+		else
 		{
-			CHIAKI_LOGE(log.GetChiakiLog(), "Failed to resample echo audio: %s", SDL_GetError());
-			return;
+			SDL_AudioCVT cvt = echo_speex_cvt;
+			cvt.len = mic_buf.size_bytes * 2;
+			cvt.buf = echo_resampler_buf;
+			memcpy(echo_resampler_buf, pcm, mic_buf.size_bytes * 2);
+			if(SDL_ConvertAudio(&cvt) != 0)
+			{
+				CHIAKI_LOGE(log.GetChiakiLog(), "Failed to resample echo audio: %s", SDL_GetError());
+				return;
+			}
+			QByteArray echo_frame(reinterpret_cast<const char *>(echo_resampler_buf), cvt.len_cvt);
+			QMutexLocker locker(&echo_to_cancel_mutex);
+			if(echo_to_cancel.size() >= ECHO_QUEUE_MAX)
+				echo_to_cancel.dequeue();
+			echo_to_cancel.enqueue(echo_frame);
 		}
-		QByteArray echo_frame(reinterpret_cast<const char *>(echo_resampler_buf), cvt.len_cvt);
-		QMutexLocker locker(&echo_to_cancel_mutex);
-		if(echo_to_cancel.size() >= ECHO_QUEUE_MAX)
-			echo_to_cancel.dequeue();
-		echo_to_cancel.enqueue(echo_frame);
 	}
 #endif
-queue_audio:
-	QueueAudioOutData(buf);
+	QueueAudioOutData(pcm, byte_count);
 }
 
-void StreamSession::QueueAudioOutData(const QByteArray &audio_data)
+void StreamSession::QueueAudioOutData(const char *data, size_t data_size)
 {
+	if(audio_out_pull_active.loadAcquire())
+	{
+		size_t discarded;
+		{
+			QMutexLocker locker(&audio_out_pull_mutex);
+			discarded = audio_out_pull.push(data, data_size);
+		}
+		if(discarded)
+			audio_out_pull_discarded.fetchAndAddRelaxed(discarded);
+		return;
+	}
+	// Only the queued output worker queries or clears its SDL queue.
 	{
 		QMutexLocker locker(&audio_out_ring_mutex);
 		size_t capacity = (size_t)audio_out_ring_buf.size();
-		size_t data_size = (size_t)audio_data.size();
 		if(capacity == 0 || data_size == 0)
 			return;
 
-		const char *data = audio_data.constData();
 		if(data_size >= capacity)
 		{
 			data += data_size - capacity;
@@ -1909,14 +2102,18 @@ void StreamSession::QueueAudioOutData(const QByteArray &audio_data)
 	audio_out_drain_wait.wakeOne();
 }
 
-void StreamSession::DrainAudioOutRingBuffer()
+void StreamSession::DrainAudioOutRingBuffer(QByteArray &audio_chunk)
 {
-	const size_t target_queue_size = audio_buffer_size * 2;
+	const size_t target_queue_size = static_cast<size_t>(audio_chunk.size());
 
 	while(audio_out)
 	{
-		if(SDL_GetQueuedAudioSize(audio_out) > 3 * audio_buffer_size)
+		// Only this worker adds to the SDL queue. A snapshot can underfill
+		// while playback consumes data, but won't overfill the target.
+		const size_t queued = SDL_GetQueuedAudioSize(audio_out);
+		if(queued > 3 * size_t(audio_buffer_size))
 		{
+			audio_output_queue_resets.fetchAndAddRelaxed(1);
 			CHIAKI_LOGW(log.GetChiakiLog(), "Audio queue exceeded latency threshold, clearing queued audio");
 			SDL_ClearQueuedAudio(audio_out);
 			QMutexLocker locker(&audio_out_ring_mutex);
@@ -1924,12 +2121,12 @@ void StreamSession::DrainAudioOutRingBuffer()
 			audio_out_ring_write_pos = 0;
 			audio_out_ring_fill = 0;
 			audio_out_overflow_logged = false;
+			return;
 		}
+		if(queued >= target_queue_size)
+			return;
 
-		if(SDL_GetQueuedAudioSize(audio_out) >= target_queue_size)
-			break;
-
-		QByteArray audio_chunk;
+		size_t chunk_size = 0;
 		{
 			QMutexLocker locker(&audio_out_ring_mutex);
 			if(audio_out_ring_fill == 0)
@@ -1938,19 +2135,21 @@ void StreamSession::DrainAudioOutRingBuffer()
 				return;
 			}
 
-			size_t capacity = (size_t)audio_out_ring_buf.size();
-			size_t remaining_target = target_queue_size - SDL_GetQueuedAudioSize(audio_out);
-			size_t chunk_size = qMin(audio_out_ring_fill, qMin(remaining_target, capacity - audio_out_ring_read_pos));
-			audio_chunk = QByteArray(audio_out_ring_buf.constData() + audio_out_ring_read_pos, (int)chunk_size);
+			const size_t capacity = static_cast<size_t>(audio_out_ring_buf.size());
+			chunk_size = rcp::audioQueueChunk(target_queue_size, queued, audio_out_ring_fill,
+				capacity - audio_out_ring_read_pos, audio_out_sample_size);
+			if(!chunk_size)
+				return;
+			memcpy(audio_chunk.data(), audio_out_ring_buf.constData() + audio_out_ring_read_pos, chunk_size);
 			audio_out_ring_read_pos = (audio_out_ring_read_pos + chunk_size) % capacity;
 			audio_out_ring_fill -= chunk_size;
 		}
 
-		if(SDL_QueueAudio(audio_out, audio_chunk.constData(), (Uint32)audio_chunk.size()) < 0)
+		if(SDL_QueueAudio(audio_out, audio_chunk.constData(), static_cast<Uint32>(chunk_size)) < 0)
 		{
 			CHIAKI_LOGE(log.GetChiakiLog(), "Failed to queue audio frame: %s", SDL_GetError());
 			SDL_ClearQueuedAudio(audio_out);
-			break;
+			return;
 		}
 	}
 }
@@ -1988,6 +2187,9 @@ void StreamSession::StopAudioOutDrainThread()
 
 void StreamSession::AudioOutDrainThreadMain()
 {
+	// One staging allocation for the device lifetime, not per playback chunk.
+	QByteArray audio_chunk;
+	audio_chunk.resize(static_cast<qsizetype>(audio_buffer_size) * 2);
 	audio_out_drain_mutex.lock();
 	while(audio_out_drain_thread_running)
 	{
@@ -2001,7 +2203,7 @@ void StreamSession::AudioOutDrainThreadMain()
 
 		while(true)
 		{
-			DrainAudioOutRingBuffer();
+			DrainAudioOutRingBuffer(audio_chunk);
 
 			bool has_pending_audio = false;
 			{
@@ -2221,7 +2423,17 @@ void StreamSession::PushHapticsFrame(uint8_t *buf, size_t buf_size)
 		return;
 	}
 
-	if (SDL_QueueAudio(haptics_output, cvt.buf, cvt.len_cvt) < 0)
+	// Keep late vibration from playing long after a transport stall.
+	// Based on chiaki-ng's 60 ms software-queue limit (31a066016007).
+	if (cvt.len_cvt <= 0)
+		return;
+	const auto haptic = rcp::planDualSenseHaptics(SDL_GetQueuedAudioSize(haptics_output),
+		static_cast<size_t>(cvt.len_cvt));
+	if (!haptic.bytes)
+		return;
+	if (haptic.clear_backlog)
+		SDL_ClearQueuedAudio(haptics_output);
+	if (SDL_QueueAudio(haptics_output, cvt.buf + haptic.offset, static_cast<Uint32>(haptic.bytes)) < 0)
 	{
 		CHIAKI_LOGE(log.GetChiakiLog(), "Failed to submit haptics audio to device: %s", SDL_GetError());
 		return;

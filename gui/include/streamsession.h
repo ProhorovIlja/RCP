@@ -31,10 +31,12 @@
 #include "sessionlog.h"
 #include "controllermanager.h"
 #include "settings.h"
+#include "rcp/audio_pull.h"
 
 #include <QObject>
 #include <QImage>
 #include <QMouseEvent>
+#include <QSet>
 #include <QMutex>
 #include <QTimer>
 #include <QQueue>
@@ -160,6 +162,7 @@ class StreamSession : public QObject
 	Q_PROPERTY(bool muted READ GetMuted WRITE SetMuted NOTIFY MutedChanged)
 	Q_PROPERTY(bool cantDisplay READ GetCantDisplay NOTIFY CantDisplayChanged)
 	Q_PROPERTY(int framesLost READ GetFramesLost NOTIFY FramesLostChanged)
+	Q_PROPERTY(QString decoderBackend READ GetDecoderBackend CONSTANT)
 
 	private:
 		SessionLog log;
@@ -178,7 +181,7 @@ class StreamSession : public QObject
 		bool allow_unmute;
 		int input_block;
 		QString host;
-		int audio_volume;
+		QAtomicInteger<int> audio_volume = SDL_MIX_MAXVOLUME;
 		double measured_bitrate = 0;
 		double average_packet_loss = 0;
 		int32_t frames_lost = 0;
@@ -225,6 +228,9 @@ class StreamSession : public QObject
 		bool rumble_haptics_on;
 		float PS_TOUCHPAD_MAX_X, PS_TOUCHPAD_MAX_Y;
 		ChiakiControllerState keyboard_state;
+        ChiakiControllerState rcp_mouse_state;
+        ChiakiControllerState rcp_key_state;
+        QSet<int> rcp_keys;
 		ChiakiControllerState touch_state;
 		QMap<int, uint8_t> touch_tracker;
 		int8_t mouse_touch_id;
@@ -249,6 +255,7 @@ class StreamSession : public QObject
 		bool session_started;
 
 		ChiakiFfmpegDecoder *ffmpeg_decoder;
+		QString decoder_backend;
 		void TriggerFfmpegFrameAvailable();
 #if CHIAKI_LIB_ENABLE_PI_DECODER
 		ChiakiPiDecoder *pi_decoder;
@@ -259,6 +266,15 @@ class StreamSession : public QObject
 		SDL_AudioDeviceID audio_out;
 		SDL_AudioDeviceID audio_in;
 		size_t audio_out_sample_size;
+		unsigned int audio_out_pcm_rate = 0;
+		QAtomicInteger<quint32> audio_output_queue_resets{0};
+		QAtomicInteger<unsigned int> audio_out_accepting{0};
+		QAtomicInteger<unsigned int> audio_out_pull_active{0};
+		QMutex audio_out_pull_mutex;
+		rcp::AudioPullBuffer audio_out_pull;
+		QAtomicInteger<quint32> audio_out_pull_starves{0};
+		QAtomicInteger<quint32> audio_out_pull_busy{0};
+		QAtomicInteger<quint64> audio_out_pull_discarded{0};
 		QMutex audio_out_ring_mutex;
 		QByteArray audio_out_ring_buf;
 		size_t audio_out_ring_read_pos = 0;
@@ -301,8 +317,10 @@ class StreamSession : public QObject
 		void StartAudioOutDrainThread();
 		void StopAudioOutDrainThread();
 		void AudioOutDrainThreadMain();
-		void QueueAudioOutData(const QByteArray &audio_data);
-		void DrainAudioOutRingBuffer();
+		void QueueAudioOutData(const char *data, size_t data_size);
+		void CloseAudioOutput();
+		static void SDLCALL PullAudioCallback(void *userdata, Uint8 *pcm, int length);
+		void DrainAudioOutRingBuffer(QByteArray &audio_chunk);
 		void PushAudioFrame(int16_t *buf, size_t samples_count);
 		void PushHapticsFrame(uint8_t *buf, size_t buf_size);
 		void CantDisplayMessage(bool cant_display);
@@ -356,9 +374,12 @@ class StreamSession : public QObject
 		quint32 GetMtuOut() const { return session.mtu_out; }
 		quint64 DecoderFlushGeneration() const { return decoder_flush_generation.loadRelaxed(); }
 		int GetFramesLost()		{ return frames_lost; }
+		QString GetDecoderBackend() const { return decoder_backend; }
 		bool GetMuted()	{ return muted; }
 		void SetMuted(bool enable)	{ if (enable != muted) ToggleMute(); }
-		void SetAudioVolume(int volume) { audio_volume = volume; }
+		void SetAudioVolume(int volume) { audio_volume.storeRelaxed(volume); }
+		Q_INVOKABLE double audioClientBufferedMs();
+		Q_INVOKABLE quint32 audioOutputQueueResets() const { return audio_output_queue_resets.loadRelaxed(); }
 		bool GetCantDisplay()	{ return cant_display; }
 		ChiakiErrorCode ConnectPsnConnection(QString duid, bool ps5);
 		void CancelPsnConnection(bool stop_thread);
@@ -370,6 +391,10 @@ class StreamSession : public QObject
 		ChiakiPiDecoder *GetPiDecoder()	{ return pi_decoder; }
 #endif
 		void HandleKeyboardEvent(QKeyEvent *event);
+        void ResetRcpInput();
+        void SetRcpMouseLook(int x, int y);
+        void SetRcpMouseButton(Qt::MouseButton button, bool pressed);
+        bool HandleRcpKey(QKeyEvent *event);
 		void HandleTouchEvent(QTouchEvent *event, qreal width, qreal height);
 		void HandleDpadTouchEvent(ChiakiControllerState *state, bool placeholder = false);
 		void HandleMouseReleaseEvent(QMouseEvent *event);

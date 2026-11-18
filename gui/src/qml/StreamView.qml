@@ -298,141 +298,117 @@ Item {
         Item {
             id: streamStatsContentRoot
             anchors.fill: parent
-            ColumnLayout {
-                anchors {
-                    right: parent.right
-                    verticalCenter: parent.verticalCenter
-                    rightMargin: 5
-                }
+            readonly property var session: Chiaki.session
+            readonly property real bitrate: session ? session.measuredBitrate : NaN
+            readonly property real packetLoss: session ? session.averagePacketLoss : NaN
+            readonly property int localDrops: Chiaki.window.localDroppedFrames
+            readonly property real frameAgeMs: Chiaki.window.pendingFrameAge * 1000
+            readonly property int frameMemoryPath: Chiaki.window.frameMemoryPath
+            property real audioBufferMs: -1
+            property int audioResets: 0
 
-                Label {
-                    Layout.alignment: Qt.AlignRight
-                    text: "Mbps"
-                    font.pixelSize: 18
-                    visible: Chiaki.session ? true : false
-
-                    Label {
-                        anchors {
-                            right: parent.left
-                            baseline: parent.baseline
-                            rightMargin: 5
-                        }
-                        text: parent.visible ? Chiaki.session.measuredBitrate.toFixed(1) : ""
-                        color: Material.accent
-                        font.bold: true
-                        font.pixelSize: 28
+            Timer {
+                interval: 1000
+                running: !!streamStatsContentRoot.session
+                triggeredOnStart: true
+                repeat: true
+                onTriggered: {
+                    const session = streamStatsContentRoot.session
+                    if (session) {
+                        streamStatsContentRoot.audioBufferMs = session.audioClientBufferedMs()
+                        streamStatsContentRoot.audioResets = session.audioOutputQueueResets()
                     }
                 }
+            }
 
-                Label {
-                    Layout.alignment: Qt.AlignRight
-                    text: qsTr("queue depth avg")
-                    font.pixelSize: 15
-                    opacity: Chiaki.session ? 1 : 0
-                    visible: opacity > 0
+            Rectangle {
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.margins: 16
+                width: Math.max(0, Math.min(parent.width - 32, 395))
+                height: statsColumn.implicitHeight + 22
+                radius: 6
+                color: "#e616202b"
+                border.color: "#657588"
+                visible: !!streamStatsContentRoot.session && parent.width >= 220
 
-                    Behavior on opacity { NumberAnimation { duration: 250 } }
+                ColumnLayout {
+                    id: statsColumn
+                    anchors.fill: parent
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 14
+                    anchors.topMargin: 11
+                    anchors.bottomMargin: 11
+                    spacing: 4
 
                     Label {
-                        anchors {
-                            right: parent.left
-                            baseline: parent.baseline
-                            rightMargin: 5
-                        }
-                        text: parent.visible ? Chiaki.window.queueDepthAverage.toFixed(1) : ""
                         font.bold: true
-                        color: "#90caf9"
-                        font.pixelSize: 18
+                        color: "#9cdcff"
+                        text: Chiaki.window.rcpMouseCaptured ? qsTr("RCP · поток · мышь F8 / Esc") : qsTr("RCP · поток")
                     }
-                }
-
-                Label {
-                    Layout.alignment: Qt.AlignRight
-                    text: qsTr("pending frame age")
-                    font.pixelSize: 15
-                    opacity: Chiaki.session ? 1 : 0
-                    visible: opacity > 0
-
-                    Behavior on opacity { NumberAnimation { duration: 250 } }
 
                     Label {
-                        anchors {
-                            right: parent.left
-                            baseline: parent.baseline
-                            rightMargin: 5
-                        }
-                        text: parent.visible ? qsTr("%1 ms").arg((Chiaki.window.pendingFrameAge * 1000.0).toFixed(0)) : ""
-                        font.bold: true
-                        color: "#90caf9"
-                        font.pixelSize: 18
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        color: "#f3f7fa"
+                        text: qsTr("%1 Мбит/с · декодер %2")
+                            .arg(isFinite(streamStatsContentRoot.bitrate)
+                                 ? streamStatsContentRoot.bitrate.toFixed(1) : "—")
+                            .arg(streamStatsContentRoot.session
+                                 ? streamStatsContentRoot.session.decoderBackend : "—")
                     }
-                }
-
-                Label {
-                    Layout.alignment: Qt.AlignRight
-                    id: statsPacketLossLabel
-                    text: qsTr("packet loss")
-                    font.pixelSize: 15
-                    opacity: Chiaki.session ? 1 : 0
-                    visible: opacity > 0
-
-                    Behavior on opacity { NumberAnimation { duration: 250 } }
 
                     Label {
-                        anchors {
-                            right: parent.left
-                            baseline: parent.baseline
-                            rightMargin: 5
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        color: streamStatsContentRoot.frameMemoryPath === 3 ? "#ffcd9d" : "#b6c1cd"
+                        text: {
+                            switch (streamStatsContentRoot.frameMemoryPath) {
+                            case 1: return qsTr("Кадры на входе рендера: ОЗУ")
+                            case 2: return qsTr("Кадры на входе рендера: GPU")
+                            case 3: return qsTr("Кадры на входе рендера: копия GPU → ОЗУ")
+                            default: return qsTr("Кадры на входе рендера: —")
+                            }
                         }
-                        text: parent.visible ? "%1<font size=\"1\">%</font>".arg((((Chiaki.session && isFinite(Chiaki.session.averagePacketLoss)) ? Chiaki.session.averagePacketLoss : 0) * 100).toFixed(1)) : ""
-                        font.bold: true
-                        color: "#ef9a9a"
-                        font.pixelSize: 18
                     }
-                }
-
-                Label {
-                    Layout.alignment: Qt.AlignRight
-                    text: qsTr("dropped frames")
-                    font.pixelSize: 15
-                    opacity: Chiaki.session ? 1 : 0
-                    visible: opacity > 0
-
-                    Behavior on opacity { NumberAnimation { duration: 250 } }
 
                     Label {
-                        id: statsDroppedFramesLabel
-                        anchors {
-                            right: parent.left
-                            baseline: parent.baseline
-                            rightMargin: 5
-                        }
-                        text: parent.visible ? Chiaki.window.droppedFrames : ""
-                        color: "#ef9a9a"
-                        font.bold: true
-                        font.pixelSize: 18
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        color: streamStatsContentRoot.packetLoss > 0 ? "#ffcd9d" : "#f3f7fa"
+                        text: qsTr("Потери пакетов: %1 · потеряно кадров: %2")
+                            .arg(isFinite(streamStatsContentRoot.packetLoss)
+                                 ? (streamStatsContentRoot.packetLoss * 100).toFixed(1) + "%" : "—")
+                            .arg(streamStatsContentRoot.session ? streamStatsContentRoot.session.framesLost : "—")
                     }
-                }
-
-                Label {
-                    Layout.alignment: Qt.AlignRight
-                    text: qsTr("lost frames")
-                    font.pixelSize: 15
-                    opacity: Chiaki.session ? 1 : 0
-                    visible: opacity > 0
-
-                    Behavior on opacity { NumberAnimation { duration: 250 } }
 
                     Label {
-                        anchors {
-                            right: parent.left
-                            baseline: parent.baseline
-                            rightMargin: 5
-                        }
-                        text: parent.visible ? ((Chiaki.session && isFinite(Chiaki.session.framesLost)) ? Chiaki.session.framesLost : 0) : ""
-                        color: "#ef9a9a"
-                        font.bold: true
-                        font.pixelSize: 18
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        color: streamStatsContentRoot.localDrops > 0 ? "#ffcd9d" : "#f3f7fa"
+                        text: qsTr("Локальные пропуски: %1/с · очередь: %2")
+                            .arg(streamStatsContentRoot.localDrops)
+                            .arg(Chiaki.window.queueDepthAverage.toFixed(1))
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        visible: streamStatsContentRoot.audioBufferMs >= 0
+                        color: "#b6c1cd"
+                        text: qsTr("Очередь звука RCP: ~%1 мс · сбросы: %2")
+                            .arg(streamStatsContentRoot.audioBufferMs.toFixed(0))
+                            .arg(streamStatsContentRoot.audioResets)
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        color: "#b6c1cd"
+                        text: qsTr("Ожидание кадра: %1 мс · %2")
+                            .arg(isFinite(streamStatsContentRoot.frameAgeMs)
+                                 ? Math.max(0, streamStatsContentRoot.frameAgeMs).toFixed(0) : "—")
+                            .arg(view.useSeparateMenuWindow ? "OpenGL" : "Vulkan")
                     }
                 }
             }

@@ -25,6 +25,10 @@ set(SOURCE_FILES
 	include/discoverymanager.h
 	src/discoverymanager.cpp
 	include/streamsession.h
+	include/rcp/mouse_look.h
+	include/rcp/render_policy.h
+	include/rcp/audio_queue.h
+	include/rcp/audio_pull.h
 	src/streamsession.cpp
 	include/sessionlog.h
 	src/sessionlog.cpp
@@ -182,6 +186,14 @@ add_library(placebo-libav-impl src/libav_impl.c)
 target_link_libraries(placebo-libav-impl PkgConfig::LIBPLACEBO FFMPEG::avcodec FFMPEG::avutil FFMPEG::avformat)
 target_link_libraries(chiaki PkgConfig::LIBPLACEBO placebo-libav-impl)
 
+# Standalone, opt-in Windows video lab. The launcher never loads this tool.
+if(WIN32 AND TARGET FFMPEG::avformat)
+    add_executable(rcp-d3d11-lab tools/rcp_d3d11_lab.cpp)
+    target_compile_features(rcp-d3d11-lab PRIVATE cxx_std_17)
+    target_link_libraries(rcp-d3d11-lab PRIVATE
+        PkgConfig::LIBPLACEBO placebo-libav-impl FFMPEG::avcodec FFMPEG::avutil FFMPEG::avformat user32)
+endif()
+
 target_link_libraries(chiaki chiaki-lib)
 
 # Test-only stream replay (recorded media instead of a PS5). Never enable for
@@ -209,7 +221,7 @@ if (${Qt6WebEngineQuick_FOUND})
 endif()
 target_link_libraries(chiaki SDL2::SDL2)
 if(WIN32)
-	target_link_libraries(chiaki iphlpapi ws2_32 wlanapi)
+	target_link_libraries(chiaki iphlpapi ws2_32 wlanapi user32)
 endif()
 if(CHIAKI_ENABLE_SPEEX)
   target_link_libraries(chiaki PkgConfig::SpeexDSP)
@@ -256,6 +268,28 @@ install(FILES chiaking.png DESTINATION share/icons/hicolor/512x512/apps)
 install(FILES io.github.streetpea.Chiaki4deck.appdata.xml DESTINATION share/metainfo)
 
 if(CHIAKI_ENABLE_TESTS)
+    add_executable(rcp-input-unit src/rcp_input_test.cpp)
+    target_include_directories(rcp-input-unit PRIVATE include)
+    target_compile_features(rcp-input-unit PRIVATE cxx_std_17)
+    add_test(NAME rcp-input COMMAND rcp-input-unit)
+
+    add_executable(rcp-replay-unit src/rcp_replay_test.cpp)
+    target_include_directories(rcp-replay-unit PRIVATE include)
+    target_compile_features(rcp-replay-unit PRIVATE cxx_std_17)
+    add_test(NAME rcp-replay-unit COMMAND rcp-replay-unit)
+
+    add_executable(rcp-audio-unit src/rcp_audio_test.cpp)
+    target_include_directories(rcp-audio-unit PRIVATE include)
+    target_compile_features(rcp-audio-unit PRIVATE cxx_std_17)
+    add_test(NAME rcp-audio COMMAND rcp-audio-unit)
+
+    add_executable(rcp-audio-pull-smoke src/rcp_audio_pull_smoke.cpp)
+    target_include_directories(rcp-audio-pull-smoke PRIVATE include)
+    target_compile_features(rcp-audio-pull-smoke PRIVATE cxx_std_17)
+    target_link_libraries(rcp-audio-pull-smoke PRIVATE SDL2::SDL2)
+    add_test(NAME rcp-audio-pull-smoke COMMAND rcp-audio-pull-smoke)
+    set_tests_properties(rcp-audio-pull-smoke PROPERTIES TIMEOUT 12)
+
 	add_executable(nax5-auth-unit
 		src/nax5/nax5apiconfig.cpp
 		src/nax5/nax5runtime.cpp

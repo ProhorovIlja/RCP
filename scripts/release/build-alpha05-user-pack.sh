@@ -80,27 +80,42 @@ if [[ "$DIRTY_COUNT" -ne 0 ]]; then
   exit 1
 fi
 
-if [[ -f "$ROOT/assets/branding/nax5-brand-sheet.jpg" ]]; then
-  /mingw64/bin/python3 "$ROOT/scripts/branding/import-nax5-logo.py"
-elif [[ ! -f "$ROOT/gui/nax5.ico" || ! -f "$ROOT/gui/res/nax5-logo.png" ]]; then
-  /mingw64/bin/python3 "$ROOT/scripts/branding/generate-nax5-ico.py"
+# Release tags already carry the reviewed assets. Regenerating them on every
+# runner made the build depend on unrelated image-processing packages.
+if [[ ! -s "$ROOT/gui/nax5.ico" || ! -s "$ROOT/gui/res/nax5-logo.png" ]]; then
+  if [[ -f "$ROOT/assets/branding/nax5-brand-sheet.jpg" ]]; then
+    /mingw64/bin/python3 "$ROOT/scripts/branding/import-nax5-logo.py"
+  else
+    /mingw64/bin/python3 "$ROOT/scripts/branding/generate-nax5-ico.py"
+  fi
 fi
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCHIAKI_ENABLE_CLI=OFF \
+  -DCHIAKI_ENABLE_STEAMDECK_NATIVE=OFF \
   -DCHIAKI_ENABLE_TESTS=ON \
   -DNAX5_STREAM_REPLAY=OFF
+
+echo "building and checking the standalone D3D11 lab..."
+cmake --build "$BUILD" --config Release --target rcp-d3d11-lab
+"$BUILD/gui/rcp-d3d11-lab.exe" --warp-smoke
+"$BUILD/gui/rcp-d3d11-lab.exe" --decoder-capabilities
 
 echo "building chiaki..."
 cmake --build "$BUILD" --config Release --target chiaki
 echo "building unit tests..."
-cmake --build "$BUILD" --config Release --target nax5-auth-unit nax5-session-unit nax5-connection-unit nax5-telemetry-unit
+cmake --build "$BUILD" --config Release --target nax5-auth-unit nax5-session-unit nax5-connection-unit nax5-telemetry-unit rcp-input-unit rcp-audio-unit rcp-audio-pull-smoke rcp-feedback-replay rcp-replay-unit
 
 "$BUILD/gui/nax5-auth-unit.exe"
 "$BUILD/gui/nax5-session-unit.exe"
 "$BUILD/gui/nax5-connection-unit.exe"
 "$BUILD/gui/nax5-telemetry-unit.exe"
+"$BUILD/gui/rcp-input-unit.exe"
+"$BUILD/gui/rcp-audio-unit.exe"
+ctest --test-dir "$BUILD" -C Release -R '^rcp-audio-pull-smoke$' --no-tests=error -V
+ctest --test-dir "$BUILD" -C Release -R '^rcp-feedback-replay$' --no-tests=error -V
+ctest --test-dir "$BUILD" -C Release -R '^rcp-replay-unit$' --no-tests=error -V
 echo "unit tests passed"
 
 test -f "$EXE"
@@ -144,6 +159,20 @@ rm -f "$USER_DIR"/ALPHA0*.md
 
 cp -f "$ROOT/docs/acceptance/ALPHA05-USER-TEST.md" "$USER_DIR/ALPHA05-USER-TEST.md"
 cp -f "$ROOT/scripts/release/README-USER-alpha05.txt" "$USER_DIR/README-USER.txt"
+cp -f "$ROOT/docs/RCP-QUICKSTART.md" "$USER_DIR/RCP-QUICKSTART.md"
+cp -f "$ROOT/docs/RCP-D3D11-LAB.md" "$USER_DIR/RCP-D3D11-LAB.md"
+cp -f "$BUILD/gui/rcp-d3d11-lab.exe" "$USER_DIR/rcp-d3d11-lab.exe"
+lab_demo_args=(
+  -nostdin -hide_banner -loglevel error -y
+  -f lavfi -i testsrc2=size=1920x1080:rate=30 -vf fps=60 -frames:v 120
+  -an -pix_fmt yuv420p -c:v libx265 -preset ultrafast -tune zerolatency
+  -x265-params pools=2:frame-threads=2:log-level=error
+  -color_primaries bt709 -colorspace bt709 -color_trc bt709 -color_range tv
+  "$USER_DIR/rcp-d3d11-demo.mkv"
+)
+ffmpeg "${lab_demo_args[@]}"
+cp -f "$ROOT/COPYING" "$ROOT/THIRD-PARTY-NOTICES.md" "$USER_DIR/"
+cp -a "$ROOT/LICENSES" "$USER_DIR/"
 
 {
   echo "NAX5 Alpha 0.5 portable Windows x64"
@@ -160,7 +189,7 @@ cp -f "$ROOT/scripts/release/README-USER-alpha05.txt" "$USER_DIR/README-USER.txt
   echo "launch: NAX5.exe (Inno Setup installer) -> chiaki.exe"
   echo "launcher: ${LAUNCHER_EXE##*/}"
   echo "installer: ${INSTALLER##*/}"
-  echo "unit tests: nax5-auth-unit, nax5-session-unit, nax5-connection-unit, nax5-telemetry-unit passed"
+  echo "unit tests: nax5-auth-unit, nax5-session-unit, nax5-connection-unit, nax5-telemetry-unit, rcp-input-unit, rcp-audio-unit, rcp-audio-pull-smoke, rcp-feedback-replay, rcp-replay-unit passed"
   echo "clean launch smoke skipped: ${NAX5_SKIP_LAUNCH_SMOKE:-0}"
   echo "features: login, reserve, auto Remote Play, process log, client-reports, session hardening, first-frame replay tracking"
 } > "$USER_DIR/BUILD-INFO.txt"
@@ -191,5 +220,25 @@ echo "PORTABLE_SHA256=$SHA256"
 ls -l "$PORTABLE_ZIP"
 
 bash "$ROOT/scripts/release/package-inno-launcher.sh" "$USER_DIR" "$OUT"
+
+# The replay executable is temporary CI evidence, never part of the portable
+# package or installer. Build it after both product artifacts are finalized.
+if [[ "${GITHUB_ACTIONS:-}" == "true" && -n "${GITHUB_ENV:-}" ]]; then
+  REPLAY_ROOT="$(mktemp -d)"
+  REPLAY_BUILD="$REPLAY_ROOT/build"
+  cmake -S "$ROOT" -B "$REPLAY_BUILD" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCHIAKI_ENABLE_CLI=OFF -DCHIAKI_ENABLE_STEAMDECK_NATIVE=OFF \
+    -DCHIAKI_ENABLE_TESTS=OFF -DNAX5_STREAM_REPLAY=ON
+  cmake --build "$REPLAY_BUILD" --config Release --target chiaki
+  /mingw64/bin/python3 "$ROOT/scripts/tests/stream-replay/make-replay-media.py" \
+    "$(cygpath -w "$REPLAY_ROOT/media")" --seconds 3 --profile h265-1080p60-30content
+  {
+    printf 'RCP_CI_REPLAY_EXE=%s\n' "$(cygpath -w "$REPLAY_BUILD/gui/chiaki.exe")"
+    printf 'RCP_CI_REPLAY_MEDIA=%s\n' "$(cygpath -w "$REPLAY_ROOT/media")"
+    printf 'RCP_CI_REPLAY_EXTRA_DLLS=%s\n' "$(cygpath -w "$REPLAY_BUILD/third-party/cpp-steam-tools")"
+    printf 'RCP_CI_REPLAY_MINGW=%s\n' "$(cygpath -w /mingw64/bin)"
+  } >> "$GITHUB_ENV"
+fi
 
 echo "DONE"

@@ -29,3 +29,19 @@ target_link_libraries(chiaki-unit chiaki-lib munit)
 if(CHIAKI_ENABLE_FFMPEG_DECODER)
 	target_link_libraries(chiaki-unit FFMPEG::avcodec FFMPEG::avutil)
 endif()
+
+# Exercise the production sender with deterministic test-only I/O and time.
+add_executable(rcp-feedback-replay
+    feedback-replay.c
+    ../lib/src/feedbacksender.c
+    ../lib/src/feedback.c
+    ../lib/src/controller.c)
+target_include_directories(rcp-feedback-replay PRIVATE ../lib/include)
+target_compile_features(rcp-feedback-replay PRIVATE c_std_99)
+if(WIN32)
+    target_link_libraries(rcp-feedback-replay PRIVATE ws2_32)
+else()
+    target_link_libraries(rcp-feedback-replay PRIVATE m)
+endif()
+add_test(NAME rcp-feedback-replay COMMAND rcp-feedback-replay)
+set_tests_properties(rcp-feedback-replay PROPERTIES TIMEOUT 10)

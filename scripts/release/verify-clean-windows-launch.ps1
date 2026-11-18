@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$BundleDir,
     [string]$InstallerExe = '',
+    [string]$SoftwareOpenGLDir = '',
     [int]$SettleSeconds = 8
 )
 
@@ -53,6 +54,31 @@ function Test-ChiakiLaunch {
         }
     }
 
+    if ($SoftwareOpenGLDir) {
+        # First check DLL loading with the clean bundle PATH, without any Mesa DLLs.
+        $probe = New-Object System.Diagnostics.Process
+        $probe.StartInfo = $psi
+        $probe.StartInfo.Arguments = 'list'
+        if (-not $probe.Start()) { throw "could not launch dependency probe" }
+        if (-not $probe.WaitForExit(15000)) {
+            $probe.Kill()
+            throw "clean dependency probe timed out"
+        }
+        if ($probe.ExitCode -ne 0) {
+            throw "clean dependency probe failed with exit code $($probe.ExitCode)"
+        }
+        $probe.Dispose()
+        $psi.Arguments = ''
+
+        # Only the isolated CI GUI smoke needs Mesa. Do not add it to the ZIP.
+        $mesa = (Resolve-Path -LiteralPath $SoftwareOpenGLDir).Path
+        $psi.EnvironmentVariables['PATH'] = "$AppDir;$mesa;$systemRoot\System32;$systemRoot"
+        $psi.EnvironmentVariables['QT_OPENGL'] = 'software'
+        $psi.EnvironmentVariables['QT_OPENGL_DLL'] = (Join-Path $mesa 'opengl32.dll')
+        $psi.EnvironmentVariables['GALLIUM_DRIVER'] = 'llvmpipe'
+        $psi.EnvironmentVariables['CHIAKI_FORCE_VULKAN_FALLBACK'] = '1'
+    }
+
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
     if (-not $proc.Start()) {
@@ -61,6 +87,12 @@ function Test-ChiakiLaunch {
 
     Start-Sleep -Seconds $SettleSeconds
     if ($proc.HasExited) {
+        $logDir = Join-Path $env:APPDATA 'NAX5\RCP\log'
+        if (Test-Path -LiteralPath $logDir) {
+            Get-ChildItem -LiteralPath $logDir -Filter 'nax5_*.log' |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1 |
+                ForEach-Object { Get-Content -LiteralPath $_.FullName -Tail 60 }
+        }
         throw "chiaki.exe exited immediately with code $($proc.ExitCode) from $AppDir"
     }
 
@@ -110,4 +142,21 @@ if ($InstallerExe) {
         }
     }
     Write-Host "CLEAN_INSTALLER_OK exe=$InstallerExe"
+}
+
+# The build stage creates this separate, unpackageable replay executable only
+# on CI. The regular portable and installed executables were tested above.
+if ($env:RCP_CI_REPLAY_EXE) {
+    if (-not $SoftwareOpenGLDir -or -not $env:RCP_CI_REPLAY_MEDIA) {
+        throw 'CI replay requires generated media and the CI-only software renderer'
+    }
+    Write-Host 'CI offline stream replay on software GL and SDL dummy audio'
+    $replayArgs = @{
+        ChiakiExe = $env:RCP_CI_REPLAY_EXE; MediaRoot = $env:RCP_CI_REPLAY_MEDIA
+        SoftwareOpenGLDir = $SoftwareOpenGLDir; DummyAudio = $true
+        DllDir = @($env:RCP_CI_REPLAY_EXTRA_DLLS, $env:RCP_CI_REPLAY_MINGW)
+        Scenario = @('rcp-clean-queued', 'rcp-clean-pull', 'rcp-impaired-queued', 'rcp-impaired-pull')
+    }
+    & "$PSScriptRoot/../tests/stream-replay/run-stream-replay.ps1" @replayArgs
+    if ($LASTEXITCODE -ne 0) { throw "CI stream replay failed with exit code $LASTEXITCODE" }
 }

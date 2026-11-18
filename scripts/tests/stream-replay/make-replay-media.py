@@ -24,6 +24,7 @@ PROFILES = {
     "h264-720p60": ("h264", 1280, 720, 60, 10000),
     "h264-1080p60": ("h264", 1920, 1080, 60, 15000),
     "h264-720p30": ("h264", 1280, 720, 30, 6000),
+    "h265-1080p60-30content": ("h265", 1920, 1080, 60, 15000),
     "h265-1080p60": ("h265", 1920, 1080, 60, 15000),
     "h265hdr-1080p60": ("h265_hdr", 1920, 1080, 60, 15000),
 }
@@ -86,7 +87,10 @@ def framed(chunks):
 
 def make_video(out, codec, width, height, fps, kbps, seconds):
     raw = out / ("video.h264" if codec == "h264" else "video.hevc")
-    src = f"testsrc2=size={width}x{height}:rate={fps},noise=alls=12:allf=t"
+    source_fps = 30 if out.name.endswith("-30content") else fps
+    src = f"testsrc2=size={width}x{height}:rate={source_fps},noise=alls=12:allf=t"
+    if source_fps != fps:
+        src += f",fps={fps}"
     common = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", src, "-t", str(seconds)]
     rate = ["-b:v", f"{kbps}k", "-maxrate", f"{kbps}k", "-bufsize", f"{kbps // 4}k"]
     gop = fps * seconds
@@ -96,7 +100,7 @@ def make_video(out, codec, width, height, fps, kbps, seconds):
               ["-bsf:v", "h264_metadata=aud=insert", "-f", "h264", str(raw)]
     else:
         ten_bit = codec == "h265_hdr"
-        params = f"keyint={gop}:min-keyint={gop}:scenecut=0:bframes=0:aud=1:repeat-headers=1"
+        params = f"keyint={gop}:min-keyint={gop}:scenecut=0:bframes=0:aud=1:repeat-headers=1:pools=2:frame-threads=2:log-level=error"
         if ten_bit:
             params += ":colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc"
         cmd = common + ["-c:v", "libx265", "-preset", "veryfast", "-tune", "zerolatency",
@@ -117,7 +121,9 @@ def make_audio(out, seconds):
     run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
          "-i", f"sine=frequency=440:sample_rate=48000:duration={seconds}", "-ac", "2", "-ar", "48000",
          "-c:a", "libopus", "-frame_duration", "10", "-b:a", "96k", "-application", "lowdelay", str(ogg)])
-    packets = ogg_packets(ogg.read_bytes())
+    packets = ogg_packets(ogg.read_bytes())[:seconds * 100]
+    if len(packets) != seconds * 100:
+        raise SystemExit(f'{out.name}: wrong number of 10 ms Opus packets')
     ogg.unlink()
     (out / "audio.opus").write_bytes(framed(packets))
     return len(packets)
@@ -127,9 +133,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("out_root")
     parser.add_argument("--seconds", type=int, default=10)
+    parser.add_argument("--profile", action="append", choices=PROFILES, help="Only generate the selected profile(s)")
     args = parser.parse_args()
+    if not 1 <= args.seconds <= 60:
+        parser.error("--seconds must be between 1 and 60")
     root = pathlib.Path(args.out_root)
-    for name, (codec, width, height, fps, kbps) in PROFILES.items():
+    for name in dict.fromkeys(args.profile or PROFILES):
+        codec, width, height, fps, kbps = PROFILES[name]
         out = root / name
         out.mkdir(parents=True, exist_ok=True)
         units = make_video(out, codec, width, height, fps, kbps, args.seconds)

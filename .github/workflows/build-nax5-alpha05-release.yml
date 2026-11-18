@@ -1,21 +1,20 @@
-name: Build NAX5 Alpha 0.5 release
+name: Build RCP Windows x64
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - task4-auto-remote-play
-    paths:
-      - 'gui/**'
-      - 'lib/**'
-      - 'scripts/release/**'
-      - 'scripts/nax5-windows-user.iss'
-      - 'scripts/deploy-windows-msys2.sh'
-      - 'CMakeLists.txt'
-      - '.github/workflows/build-nax5-alpha05-release.yml'
+      - rcp-stream-quality
+  pull_request:
+    branches:
+      - nax5-build16-base
 
 permissions:
   contents: read
+
+concurrency:
+  group: rcp-windows-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: true
 
 jobs:
   build-release:
@@ -34,6 +33,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          persist-credentials: false
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -45,8 +45,6 @@ jobs:
             cmake:p
             curl:p
             fast_float:p
-            fftw:p
-            hidapi:p
             json-c:p
             libevent:p
             lcms2:p
@@ -74,8 +72,15 @@ jobs:
             vulkan:p
             vulkan-headers:p
 
-      - name: Install python protobuf
-        run: pip install protobuf
+      - name: Match the MinGW Protobuf generator and runtime
+        run: |
+          /mingw64/bin/protoc --version
+          /mingw64/bin/python3 -m pip install --disable-pip-version-check --break-system-packages --only-binary=:all: 'protobuf==7.36.2'
+          check_dir="$(mktemp -d)"
+          trap 'rm -rf "$check_dir"' EXIT
+          printf 'syntax = "proto3"; message Probe { string name = 1; }\n' > "$check_dir/rcp_proto_check.proto"
+          /mingw64/bin/protoc -I "$check_dir" --python_out="$check_dir" "$check_dir/rcp_proto_check.proto"
+          PYTHONPATH="$(cygpath -w "$check_dir")" /mingw64/bin/python3 -c 'import rcp_proto_check_pb2; assert rcp_proto_check_pb2.Probe(name="RCP").name == "RCP"'
 
       - name: Install Inno Setup
         shell: pwsh
@@ -86,31 +91,111 @@ jobs:
           SKIP_PACMAN=1 bash scripts/release/setup-msys2-build-env.sh
           rm -rf SDL3-* ffmpeg-n7.1-latest-win64-gpl-shared-7.1*
 
-      - name: Build Alpha 0.5 user pack
+      - name: Verify client contracts
+        shell: pwsh
+        run: |
+          ./scripts/nax5/verify-qml-product-mode.ps1
+          ./scripts/nax5/verify-no-host-persistence.ps1
+          ./scripts/nax5/verify-settings-contract.ps1
+          ./scripts/nax5/verify-rcp-stream-tools.ps1
+
+      - name: Build portable launcher and run unit tests
         env:
           ISCC: /c/Program Files (x86)/Inno Setup 6/ISCC.exe
+          # The separate smoke test below uses a CI-only software GL stack.
+          NAX5_SKIP_LAUNCH_SMOKE: "1"
         run: bash scripts/release/build-alpha05-user-pack.sh
 
-      - name: Upload launcher zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: NAX5-windows
-          path: artifacts/alpha-0.5/NAX5-windows.zip
-          if-no-files-found: error
-          retention-days: 14
+      - name: Stage CI-only software graphics
+        id: software-gl
+        run: |
+          pacman -S --needed --noconfirm mingw-w64-x86_64-mesa
+          stage="$(mktemp -d)"
+          queue=(opengl32.dll libgallium_wgl.dll)
+          for ((i=0; i<${#queue[@]}; i++)); do
+            file="${queue[i]}"
+            if [[ -f "/mingw64/bin/$file" && ! -f "$stage/$file" ]]; then
+              cp "/mingw64/bin/$file" "$stage/$file"
+              while IFS= read -r dll; do
+                [[ -z "$dll" ]] || queue+=("$dll")
+              done < <(objdump -p "$stage/$file" | awk '/DLL Name:/{sub(/\r$/, "", $3); print $3}')
+            fi
+          done
+          test -s "$stage/opengl32.dll"
+          test -s "$stage/libgallium_wgl.dll"
+          printf 'path=%s\n' "$(cygpath -w "$stage")" >> "$GITHUB_OUTPUT"
 
-      - name: Upload installer zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: NAX5-windows-installer
-          path: artifacts/alpha-0.5/NAX5-windows-installer.zip
-          if-no-files-found: error
-          retention-days: 14
+      - name: Start packaged Windows launcher on software OpenGL
+        shell: pwsh
+        env:
+          RCP_CI_SOFTWARE_GL: ${{ steps.software-gl.outputs.path }}
+        run: |
+          ./scripts/release/verify-clean-windows-launch.ps1 `
+            -BundleDir './artifacts/alpha-0.5/portable/NAX5' `
+            -InstallerExe './artifacts/alpha-0.5/NAX5-windows-installer.exe' `
+            -SoftwareOpenGLDir $env:RCP_CI_SOFTWARE_GL
 
-      - name: Upload portable zip
+      - name: Preserve compiled ZIP if a CI check fails
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: NAX5-windows-portable
+          name: RCP-Windows-x64-not-launch-verified
           path: artifacts/alpha-0.5/NAX5-windows-portable.zip
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Name fork build and generate checksum
+        shell: pwsh
+        run: |
+          $output = 'artifacts/alpha-0.5'
+          $archive = "$output/RCP-Windows-x64-portable.zip"
+          Copy-Item "$output/NAX5-windows-portable.zip" $archive
+          $checksum = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$output/SHA256SUMS.txt", "$checksum  RCP-Windows-x64-portable.zip`n", [Text.Encoding]::ASCII)
+          "Portable ZIP (SHA-256): $checksum" | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload RCP Windows x64 portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: RCP-Windows-x64-portable
+          path: |
+            artifacts/alpha-0.5/RCP-Windows-x64-portable.zip
+            artifacts/alpha-0.5/SHA256SUMS.txt
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
+
+  publish-preview:
+    needs: build-release
+    if: github.repository == 'ProhorovIlja/RCP' && github.ref == 'refs/heads/rcp-stream-quality' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified Windows ZIP
+        uses: actions/download-artifact@v4
+        with:
+          name: RCP-Windows-x64-portable
+          path: dist
+
+      - name: Verify checksum and publish a prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum --check SHA256SUMS.txt)
+          version="${GITHUB_SHA:0:12}"
+          tag="rcp-preview-$version"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/RCP-Windows-x64-portable.zip dist/SHA256SUMS.txt --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            flags=(
+              --repo "$GITHUB_REPOSITORY"
+              --target "$GITHUB_SHA"
+              --prerelease
+              --latest=false
+              --title "RCP Preview $version — Windows x64"
+              --notes "CI-built preview. Extract the ZIP and open NAX5/chiaki.exe. See RCP-QUICKSTART.md in the archive. Live NAX5 sign-in and playback are not verified by CI."
+            )
+            gh release create "$tag" dist/RCP-Windows-x64-portable.zip dist/SHA256SUMS.txt "${flags[@]}"
+          fi

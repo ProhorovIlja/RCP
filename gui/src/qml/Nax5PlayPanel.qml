@@ -52,7 +52,7 @@ Rectangle {
 
         Label {
             Layout.fillWidth: true
-            text: qsTr("Версия launcher: %1").arg(Qt.application.version)
+            text: qsTr("RCP · клиент на базе NAX5 %1").arg(Qt.application.version)
             color: "#9e9e9e"
             font.pixelSize: 12
         }
@@ -88,6 +88,153 @@ Rectangle {
             }
 
             Item { Layout.fillWidth: true }
+        }
+
+        GroupBox {
+            Layout.fillWidth: true
+            title: qsTr("Настройки потока")
+            enabled: !Nax5Session.reserving && !Nax5Session.reserved
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 8
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Button {
+                        text: qsTr("1080p · 15 Мбит/с")
+                        onClicked: Chiaki.settings.applyRcpRemotePreset(false)
+                    }
+                    Button {
+                        text: qsTr("1080p · 10 Мбит/с")
+                        onClicked: Chiaki.settings.applyRcpFullHdLitePreset()
+                    }
+                    Item { Layout.fillWidth: true }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Button {
+                        text: qsTr("Стабильность · 720p")
+                        onClicked: Chiaki.settings.applyRcpRemotePreset(true)
+                    }
+                    Button {
+                        text: qsTr("Экономия · 540p")
+                        onClicked: Chiaki.settings.applyRcpDataSaverPreset()
+                    }
+                    Item { Layout.fillWidth: true }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: "#b6c1cd"
+                    readonly property var resolutions: ["", "360p", "540p", "720p", "1080p"]
+                    readonly property var defaultBitrates: [0, 2, 6, 10, 15]
+                    readonly property var codecs: ["H.264", "H.265", "H.265 HDR"]
+                    readonly property int resolution: Chiaki.settings.resolutionRemotePS5
+                    readonly property int bitrate: Chiaki.settings.bitrateRemotePS5
+                    text: qsTr("Следующий сеанс · %1 · %2 FPS · %3 · %4 Мбит/с")
+                        .arg(resolutions[resolution] || "—")
+                        .arg(Chiaki.settings.fpsRemotePS5)
+                        .arg(codecs[Chiaki.settings.codecRemotePS5] || "—")
+                        .arg(bitrate > 0 ? bitrate / 1000 : (defaultBitrates[resolution] || "—"))
+                }
+
+                CheckBox {
+                    text: qsTr("Показывать статистику во время игры")
+                    checked: Chiaki.settings.showStreamStats
+                    onToggled: Chiaki.settings.showStreamStats = checked
+                }
+
+                CheckBox {
+                    text: qsTr("Меньше задержка · без смешивания кадров")
+                    checked: Chiaki.settings.rcpLowLatency
+                    onToggled: Chiaki.settings.rcpLowLatency = checked
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: "#b6c1cd"
+                    text: Qt.platform.os === "windows"
+                        ? qsTr("DualSense по USB или F8 в игре для мыши и WASD. Esc освобождает мышь.")
+                        : qsTr("DualSense лучше подключить по USB.")
+                }
+
+                CheckBox {
+                    id: mouseTuning
+                    visible: Qt.platform.os === "windows"
+                    text: qsTr("Настроить мышь (эмуляция стика)")
+                }
+
+                RowLayout {
+                    visible: mouseTuning.visible && mouseTuning.checked
+                    Layout.fillWidth: true
+                    Label { text: qsTr("Чувствительность") }
+                    Slider {
+                        Layout.fillWidth: true
+                        from: 25
+                        to: 300
+                        stepSize: 5
+                        value: Chiaki.settings.rcpMouseSensitivity
+                        onMoved: Chiaki.settings.rcpMouseSensitivity = Math.round(value)
+                    }
+                    Label { text: Chiaki.settings.rcpMouseSensitivity + "%" }
+                    CheckBox {
+                        text: qsTr("Инвертировать Y")
+                        checked: Chiaki.settings.rcpMouseInvertY
+                        onToggled: Chiaki.settings.rcpMouseInvertY = checked
+                    }
+                }
+
+                GridLayout {
+                    visible: mouseTuning.visible && mouseTuning.checked
+                    Layout.fillWidth: true
+                    columns: 3
+
+                    Label { text: qsTr("Вертикаль") }
+                    Slider {
+                        Layout.fillWidth: true
+                        from: 25
+                        to: 200
+                        stepSize: 5
+                        value: Chiaki.settings.rcpMouseVertical
+                        onMoved: Chiaki.settings.rcpMouseVertical = Math.round(value)
+                    }
+                    Label { text: Chiaki.settings.rcpMouseVertical + "%" }
+
+                    Label { text: qsTr("Мин. отклонение") }
+                    Slider {
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 30
+                        stepSize: 1
+                        value: Chiaki.settings.rcpMouseMinOutput
+                        onMoved: Chiaki.settings.rcpMouseMinOutput = Math.round(value)
+                    }
+                    Label { text: Chiaki.settings.rcpMouseMinOutput + "%" }
+
+                    Label { text: qsTr("Возврат в центр") }
+                    Slider {
+                        Layout.fillWidth: true
+                        from: 4
+                        to: 24
+                        stepSize: 1
+                        value: Chiaki.settings.rcpMouseRecenterMs
+                        onMoved: Chiaki.settings.rcpMouseRecenterMs = Math.round(value)
+                    }
+                    Label { text: Chiaki.settings.rcpMouseRecenterMs + qsTr(" мс") }
+                }
+
+                Label {
+                    visible: mouseTuning.visible && mouseTuning.checked
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: "#b6c1cd"
+                    text: qsTr("Если игра не реагирует на мелкие движения, поднимите минимальное отклонение на 1–2%. Если движения прерывистые, попробуйте 12–16 мс.")
+                }
+            }
         }
 
         Rectangle {

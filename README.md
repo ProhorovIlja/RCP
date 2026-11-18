@@ -1,4 +1,8 @@
-# NAX5
+# RCP · форк NAX5
+
+[Запуск RCP на Windows и описание настроек](docs/RCP-QUICKSTART.md) · [Сборки GitHub Actions](https://github.com/ProhorovIlja/RCP/actions)
+
+Ниже — описание официального клиента NAX5.
 
 Клиент NAX5 для Windows: удалённая игра на физической PlayStation 5.
 

@@ -2,8 +2,10 @@
 
 #include "streamsession.h"
 #include "settings.h"
+#include "rcp/mouse_look.h"
 
 #include <QMutex>
+#include <QElapsedTimer>
 #include <QAtomicInteger>
 #include <QWindow>
 #include <QQuickWindow>
@@ -46,7 +48,9 @@ class QmlMainWindow : public QWindow
 {
     Q_OBJECT
     Q_PROPERTY(bool hasVideo READ hasVideo NOTIFY hasVideoChanged)
+    Q_PROPERTY(bool rcpMouseCaptured READ rcpMouseCaptured NOTIFY rcpMouseCapturedChanged)
     Q_PROPERTY(int droppedFrames READ droppedFrames NOTIFY droppedFramesChanged)
+    Q_PROPERTY(int localDroppedFrames READ localDroppedFrames NOTIFY localDroppedFramesChanged)
     Q_PROPERTY(bool keepVideo READ keepVideo WRITE setKeepVideo NOTIFY keepVideoChanged)
     Q_PROPERTY(VideoMode videoMode READ videoMode WRITE setVideoMode NOTIFY videoModeChanged)
     Q_PROPERTY(float ZoomFactor READ zoomFactor WRITE setZoomFactor NOTIFY zoomFactorChanged)
@@ -55,6 +59,7 @@ class QmlMainWindow : public QWindow
     Q_PROPERTY(int runtimeRendererBackend READ runtimeRendererBackend CONSTANT)
     Q_PROPERTY(double queueDepthAverage READ queueDepthAverage NOTIFY queueDepthAverageChanged)
     Q_PROPERTY(double pendingFrameAge READ pendingFrameAge NOTIFY pendingFrameAgeChanged)
+    Q_PROPERTY(FrameMemoryPath frameMemoryPath READ frameMemoryPath NOTIFY frameMemoryPathChanged)
 
 public:
     enum class VideoMode {
@@ -63,6 +68,14 @@ public:
         Zoom
     };
     Q_ENUM(VideoMode);
+
+    enum class FrameMemoryPath {
+        Unknown = 0,
+        SoftwareFrame,
+        HardwareFrame,
+        HardwareDownload
+    };
+    Q_ENUM(FrameMemoryPath);
 
     enum class VideoPreset {
         Fast,
@@ -81,7 +94,9 @@ public:
     void setSettings(Settings *new_settings);
 
     bool hasVideo() const;
+    bool rcpMouseCaptured() const { return rcp_mouse_captured; }
     int droppedFrames() const;
+    int localDroppedFrames() const { return local_dropped_frames; }
     void increaseDroppedFrames();
 
     bool directStream() const;
@@ -98,6 +113,8 @@ public:
 
     double queueDepthAverage() const;
     double pendingFrameAge() const;
+    FrameMemoryPath frameMemoryPath() const { return frame_memory_path; }
+    void presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost, FrameMemoryPath memory_path);
 
     bool amdCard() const;
     bool nvidiaCard() const;
@@ -127,13 +144,14 @@ public slots:
     void updatePlacebo();
     void updateVSync();
     void show();
-    void presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost);
 
     AVBufferRef *vulkanHwDeviceCtx();
 
 signals:
     void hasVideoChanged();
+    void rcpMouseCapturedChanged();
     void droppedFramesChanged();
+    void localDroppedFramesChanged();
     void keepVideoChanged();
     void videoModeChanged();
     void zoomFactorChanged();
@@ -142,6 +160,7 @@ signals:
     void directStreamChanged();
     void queueDepthAverageChanged();
     void pendingFrameAgeChanged();
+    void frameMemoryPathChanged();
 
 private:
     bool makeOpenGLContextCurrent();
@@ -151,6 +170,7 @@ private:
     pl_gpu placeboGpu() const;
     void update();
     void scheduleUpdate();
+    void scheduleDecodedFrameUpdate();
     void createSwapchain();
     void destroySwapchain();
     void resizeSwapchain();
@@ -174,6 +194,12 @@ private:
     void snapshotPendingFrame();
     bool handleShortcut(QKeyEvent *event);
     bool event(QEvent *event) override;
+#if defined(Q_OS_WIN)
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
+    bool startRcpMouseCapture();
+    void scheduleRcpMouseSample();
+#endif
+    void stopRcpMouseCapture(bool reset_input = true);
     QObject *focusObject() const override;
     void updateQueueDepthAverage(int depth);
     void updatePendingFrameAge(double age);
@@ -195,10 +221,21 @@ private:
     bool keep_video = false;
     RenderBackend render_backend = RenderBackend::Vulkan;
     int grab_input = 0;
+    QAtomicInteger<int> rcp_low_latency = 0;
+    bool rcp_mouse_captured = false;
+#if defined(Q_OS_WIN)
+    bool rcp_mouse_grabbed = false;
+    rcp::MouseResponse rcp_mouse_response;
+    rcp::MouseLook rcp_mouse_look;
+    QElapsedTimer rcp_mouse_clock;
+    QTimer *rcp_mouse_timer = nullptr;
+#endif
     int dropped_frames = 0;
     bool is_window_adjustable = false;
     bool is_stream_window_adjustable = false;
     QAtomicInteger<int> dropped_frames_current = 0;
+    int local_dropped_frames = 0;
+    QAtomicInteger<int> local_dropped_frames_current = 0;
     bool going_full = false;
     VideoMode video_mode = VideoMode::Normal;
     float zoom_factor = 0;
@@ -210,6 +247,7 @@ private:
     AVBufferRef *vulkan_hw_dev_ctx = nullptr;
     double queue_depth_average = 0.0;
     double pending_frame_age = 0.0;
+    FrameMemoryPath frame_memory_path = FrameMemoryPath::Unknown;
     uint64_t last_placebo_reset_ts = 0;
     uint64_t pending_frame_stored_us = 0;
     mutable QMutex pending_frame_age_mutex;
@@ -280,6 +318,7 @@ private:
     QString pending_renderer_fallback_reason;
     pl_options renderparams_opts = {};
     bool renderparams_changed = false;
+    bool custom_frame_mixer_off = false;
     const struct pl_hook *fsr_hook = nullptr;
     const struct pl_hook *fsrcnnx_hook_8 = nullptr;
     const struct pl_hook *fsrcnnx_hook_16 = nullptr;
