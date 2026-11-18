@@ -26,6 +26,7 @@ set(SOURCE_FILES
 	src/discoverymanager.cpp
 	include/streamsession.h
 	include/rcp/mouse_look.h
+	include/rcp/audio_queue.h
 	src/streamsession.cpp
 	include/sessionlog.h
 	src/sessionlog.cpp
@@ -261,6 +262,11 @@ if(CHIAKI_ENABLE_TESTS)
     target_include_directories(rcp-input-unit PRIVATE include)
     target_compile_features(rcp-input-unit PRIVATE cxx_std_17)
     add_test(NAME rcp-input COMMAND rcp-input-unit)
+
+    add_executable(rcp-audio-unit src/rcp_audio_test.cpp)
+    target_include_directories(rcp-audio-unit PRIVATE include)
+    target_compile_features(rcp-audio-unit PRIVATE cxx_std_17)
+    add_test(NAME rcp-audio COMMAND rcp-audio-unit)
 
 	add_executable(nax5-auth-unit
 		src/nax5/nax5apiconfig.cpp

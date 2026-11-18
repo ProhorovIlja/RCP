@@ -304,6 +304,22 @@ Item {
             readonly property int localDrops: Chiaki.window.localDroppedFrames
             readonly property real frameAgeMs: Chiaki.window.pendingFrameAge * 1000
             readonly property int frameMemoryPath: Chiaki.window.frameMemoryPath
+            property real audioBufferMs: -1
+            property int audioResets: 0
+
+            Timer {
+                interval: 1000
+                running: !!streamStatsContentRoot.session
+                triggeredOnStart: true
+                repeat: true
+                onTriggered: {
+                    const session = streamStatsContentRoot.session
+                    if (session) {
+                        streamStatsContentRoot.audioBufferMs = session.audioClientBufferedMs()
+                        streamStatsContentRoot.audioResets = session.audioOutputQueueResets()
+                    }
+                }
+            }
 
             Rectangle {
                 anchors.top: parent.top
@@ -373,6 +389,16 @@ Item {
                         text: qsTr("Локальные пропуски: %1/с · очередь: %2")
                             .arg(streamStatsContentRoot.localDrops)
                             .arg(Chiaki.window.queueDepthAverage.toFixed(1))
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        visible: streamStatsContentRoot.audioBufferMs >= 0
+                        color: "#b6c1cd"
+                        text: qsTr("Очередь звука RCP: ~%1 мс · сбросы: %2")
+                            .arg(streamStatsContentRoot.audioBufferMs.toFixed(0))
+                            .arg(streamStatsContentRoot.audioResets)
                     }
 
                     Label {

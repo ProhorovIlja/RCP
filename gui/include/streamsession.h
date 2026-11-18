@@ -180,7 +180,7 @@ class StreamSession : public QObject
 		bool allow_unmute;
 		int input_block;
 		QString host;
-		int audio_volume;
+		QAtomicInteger<int> audio_volume = SDL_MIX_MAXVOLUME;
 		double measured_bitrate = 0;
 		double average_packet_loss = 0;
 		int32_t frames_lost = 0;
@@ -265,6 +265,8 @@ class StreamSession : public QObject
 		SDL_AudioDeviceID audio_out;
 		SDL_AudioDeviceID audio_in;
 		size_t audio_out_sample_size;
+		unsigned int audio_out_pcm_rate = 0;
+		QAtomicInteger<quint32> audio_output_queue_resets{0};
 		QMutex audio_out_ring_mutex;
 		QByteArray audio_out_ring_buf;
 		size_t audio_out_ring_read_pos = 0;
@@ -307,8 +309,8 @@ class StreamSession : public QObject
 		void StartAudioOutDrainThread();
 		void StopAudioOutDrainThread();
 		void AudioOutDrainThreadMain();
-		void QueueAudioOutData(const QByteArray &audio_data);
-		void DrainAudioOutRingBuffer();
+		void QueueAudioOutData(const char *data, size_t data_size);
+		void DrainAudioOutRingBuffer(QByteArray &audio_chunk);
 		void PushAudioFrame(int16_t *buf, size_t samples_count);
 		void PushHapticsFrame(uint8_t *buf, size_t buf_size);
 		void CantDisplayMessage(bool cant_display);
@@ -365,7 +367,9 @@ class StreamSession : public QObject
 		QString GetDecoderBackend() const { return decoder_backend; }
 		bool GetMuted()	{ return muted; }
 		void SetMuted(bool enable)	{ if (enable != muted) ToggleMute(); }
-		void SetAudioVolume(int volume) { audio_volume = volume; }
+		void SetAudioVolume(int volume) { audio_volume.storeRelaxed(volume); }
+		Q_INVOKABLE double audioClientBufferedMs();
+		Q_INVOKABLE quint32 audioOutputQueueResets() const { return audio_output_queue_resets.loadRelaxed(); }
 		bool GetCantDisplay()	{ return cant_display; }
 		ChiakiErrorCode ConnectPsnConnection(QString duid, bool ps5);
 		void CancelPsnConnection(bool stop_thread);
