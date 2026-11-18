@@ -143,3 +143,20 @@ if ($InstallerExe) {
     }
     Write-Host "CLEAN_INSTALLER_OK exe=$InstallerExe"
 }
+
+# The build stage creates this separate, unpackageable replay executable only
+# on CI. The regular portable and installed executables were tested above.
+if ($env:RCP_CI_REPLAY_EXE) {
+    if (-not $SoftwareOpenGLDir -or -not $env:RCP_CI_REPLAY_MEDIA) {
+        throw 'CI replay requires generated media and the CI-only software renderer'
+    }
+    Write-Host 'CI offline stream replay on software GL and SDL dummy audio'
+    $replayArgs = @{
+        ChiakiExe = $env:RCP_CI_REPLAY_EXE; MediaRoot = $env:RCP_CI_REPLAY_MEDIA
+        SoftwareOpenGLDir = $SoftwareOpenGLDir; DummyAudio = $true
+        DllDir = @($env:RCP_CI_REPLAY_EXTRA_DLLS, $env:RCP_CI_REPLAY_MINGW)
+        Scenario = @('rcp-clean-queued', 'rcp-clean-pull', 'rcp-impaired-queued', 'rcp-impaired-pull')
+    }
+    & "$PSScriptRoot/../tests/stream-replay/run-stream-replay.ps1" @replayArgs
+    if ($LASTEXITCODE -ne 0) { throw "CI stream replay failed with exit code $LASTEXITCODE" }
+}

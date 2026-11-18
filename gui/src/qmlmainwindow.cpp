@@ -5,6 +5,9 @@
 #include "chiaki/time.h"
 #include "streamsession.h"
 #include "rcp/render_policy.h"
+#ifdef NAX5_STREAM_REPLAY
+#include "nax5/nax5streamreplay.h"
+#endif
 
 #include <qpa/qplatformnativeinterface.h>
 
@@ -2471,10 +2474,13 @@ void QmlMainWindow::render()
         return;
     }
     auto close_started_frame = [this](bool present) {
-        if (!pl_swapchain_submit_frame(placebo_swapchain))
+        if (!pl_swapchain_submit_frame(placebo_swapchain)) {
             qCWarning(chiakiGui) << "Failed to submit Placebo frame!";
-        else if (present)
+            return false;
+        }
+        if (present)
             pl_swapchain_swap_buffers(placebo_swapchain);
+        return true;
     };
 
     const struct pl_frame *hint_frame = nullptr;
@@ -2729,7 +2735,12 @@ void QmlMainWindow::render()
         return;
     }
 
+#ifdef NAX5_STREAM_REPLAY
+    if (close_started_frame(true))
+        nax5StreamReplayVideoSubmitted();
+#else
     close_started_frame(true);
+#endif
 
     schedule_next_update = (has_video && queue_status != PL_QUEUE_EOF)
         || pending_frame_waiting

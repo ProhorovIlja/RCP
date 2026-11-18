@@ -1243,6 +1243,13 @@ void StreamSession::SendFeedbackState()
 			dpad_touch_stop_timer->start(NEW_DPAD_TOUCH_INTERVAL_MS);
 	}
 	chiaki_controller_state_or(&state, &state, &dpad_touch_state);
+#ifdef NAX5_STREAM_REPLAY
+	if(nax5StreamReplayActive())
+	{
+		nax5StreamReplayInputState(state);
+		return;
+	}
+#endif
 	chiaki_session_set_controller_state(&session, &state);
 }
 

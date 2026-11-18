@@ -273,6 +273,11 @@ if(CHIAKI_ENABLE_TESTS)
     target_compile_features(rcp-input-unit PRIVATE cxx_std_17)
     add_test(NAME rcp-input COMMAND rcp-input-unit)
 
+    add_executable(rcp-replay-unit src/rcp_replay_test.cpp)
+    target_include_directories(rcp-replay-unit PRIVATE include)
+    target_compile_features(rcp-replay-unit PRIVATE cxx_std_17)
+    add_test(NAME rcp-replay-unit COMMAND rcp-replay-unit)
+
     add_executable(rcp-audio-unit src/rcp_audio_test.cpp)
     target_include_directories(rcp-audio-unit PRIVATE include)
     target_compile_features(rcp-audio-unit PRIVATE cxx_std_17)
