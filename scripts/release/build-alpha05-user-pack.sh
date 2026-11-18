@@ -80,10 +80,14 @@ if [[ "$DIRTY_COUNT" -ne 0 ]]; then
   exit 1
 fi
 
-if [[ -f "$ROOT/assets/branding/nax5-brand-sheet.jpg" ]]; then
-  /mingw64/bin/python3 "$ROOT/scripts/branding/import-nax5-logo.py"
-elif [[ ! -f "$ROOT/gui/nax5.ico" || ! -f "$ROOT/gui/res/nax5-logo.png" ]]; then
-  /mingw64/bin/python3 "$ROOT/scripts/branding/generate-nax5-ico.py"
+# Release tags already carry the reviewed assets. Regenerating them on every
+# runner made the build depend on unrelated image-processing packages.
+if [[ ! -s "$ROOT/gui/nax5.ico" || ! -s "$ROOT/gui/res/nax5-logo.png" ]]; then
+  if [[ -f "$ROOT/assets/branding/nax5-brand-sheet.jpg" ]]; then
+    /mingw64/bin/python3 "$ROOT/scripts/branding/import-nax5-logo.py"
+  else
+    /mingw64/bin/python3 "$ROOT/scripts/branding/generate-nax5-ico.py"
+  fi
 fi
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja \
