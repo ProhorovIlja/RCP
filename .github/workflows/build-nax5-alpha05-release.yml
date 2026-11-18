@@ -72,12 +72,15 @@ jobs:
             vulkan:p
             vulkan-headers:p
 
-      - name: Verify Python protobuf for the MinGW compiler
+      - name: Match the MinGW Protobuf generator and runtime
         run: |
-          if ! /mingw64/bin/python3 -c 'import google.protobuf'; then
-            /mingw64/bin/python3 -m pip install --disable-pip-version-check --break-system-packages --only-binary=:all: 'protobuf==6.33.6'
-          fi
-          /mingw64/bin/python3 -c 'import google.protobuf; print(google.protobuf.__version__)'
+          /mingw64/bin/protoc --version
+          /mingw64/bin/python3 -m pip install --disable-pip-version-check --break-system-packages --only-binary=:all: 'protobuf==7.36.2'
+          check_dir="$(mktemp -d)"
+          trap 'rm -rf "$check_dir"' EXIT
+          printf 'syntax = "proto3"; message Probe { string name = 1; }\n' > "$check_dir/rcp_proto_check.proto"
+          /mingw64/bin/protoc -I "$check_dir" --python_out="$check_dir" "$check_dir/rcp_proto_check.proto"
+          PYTHONPATH="$(cygpath -w "$check_dir")" /mingw64/bin/python3 -c 'import rcp_proto_check_pb2; assert rcp_proto_check_pb2.Probe(name="RCP").name == "RCP"'
 
       - name: Install Inno Setup
         shell: pwsh
