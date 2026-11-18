@@ -72,6 +72,13 @@ jobs:
             vulkan:p
             vulkan-headers:p
 
+      - name: Verify Python protobuf for the MinGW compiler
+        run: |
+          if ! /mingw64/bin/python3 -c 'import google.protobuf'; then
+            /mingw64/bin/python3 -m pip install --disable-pip-version-check --break-system-packages --only-binary=:all: 'protobuf==6.33.6'
+          fi
+          /mingw64/bin/python3 -c 'import google.protobuf; print(google.protobuf.__version__)'
+
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup -y --no-progress
