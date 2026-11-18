@@ -755,7 +755,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_feedback_state(ChiakiTakion *ta
 	uint8_t buf[0xc + CHIAKI_FEEDBACK_STATE_BUF_SIZE_MAX];
 	buf[0] = TAKION_PACKET_TYPE_FEEDBACK_STATE;
 	*((chiaki_unaligned_uint16_t *)(buf + 1)) = htons(seq_num);
-	buf[3] = 0; // TODO
+	buf[3] = 0; // number of states in the packet less one
 	*((chiaki_unaligned_uint32_t *)(buf + 4)) = 0; // key pos
 	*((chiaki_unaligned_uint32_t *)(buf + 8)) = 0; // gmac
 	size_t buf_sz;
@@ -804,7 +804,7 @@ beach:
 	return err;
 }
 
-CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_feedback_history(ChiakiTakion *takion, ChiakiSeqNum16 seq_num, uint8_t *payload, size_t payload_size)
+CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_feedback_history(ChiakiTakion *takion, ChiakiSeqNum16 seq_num, uint8_t event_count, uint8_t *payload, size_t payload_size)
 {
 	size_t buf_size = 0xc + payload_size;
 	uint8_t *buf = malloc(buf_size);
@@ -812,7 +812,9 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_feedback_history(ChiakiTakion *
 		return CHIAKI_ERR_MEMORY;
 	buf[0] = TAKION_PACKET_TYPE_FEEDBACK_HISTORY;
 	*((chiaki_unaligned_uint16_t *)(buf + 1)) = htons(seq_num);
-	buf[3] = 0; // TODO
+	// number of events in the payload less one: the console adds one back, so the full count
+	// would make it read past the payload and reject the packet
+	buf[3] = event_count ? event_count - 1 : 0;
 	*((chiaki_unaligned_uint32_t *)(buf + 4)) = 0; // key pos
 	*((chiaki_unaligned_uint32_t *)(buf + 8)) = 0; // gmac
 	memcpy(buf + 0xc, payload, payload_size);

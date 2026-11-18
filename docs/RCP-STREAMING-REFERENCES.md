@@ -32,10 +32,14 @@ button history, stale and duplicate delivery in the reference receiver, and
 It does not cover Takion headers, encryption, the real UDP path or OS
 thread scheduling.
 
-The separate idle diagnostic drops the final Cross release and advances
-the sender by one second without additional input. The current sender
-does not resend that history when idle, even though it still sends
-periodic analog/motion-state packets. The diagnostic reports the outcome
-without requiring the current limitation to stay in place. This baseline
-lets a future protocol backport demonstrate that it fixes the failure
-mode before testing on a console.
+The idle regression drops the final Cross release and advances the sender
+by one second without additional input. It requires four byte-identical
+history retries, using the original sequence number, after 20, 50, 100
+and 200 milliseconds. It also verifies that two simultaneous presses and
+releases stay individually numbered. These are sender-side guarantees
+under a simulated clock, not proof of console behavior on NAX5.
+
+This branch stages the dependency chain for the upstream
+[history numbering fix](https://github.com/chiaki-ng/chiaki-ng/commit/bc397a728bb430f28666129ef006f7a8ac0e6081).
+It changes the format of history packet headers and needs a controlled
+live session before enabling it in an RCP preview.

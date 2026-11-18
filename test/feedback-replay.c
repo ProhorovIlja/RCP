@@ -155,11 +155,12 @@ ChiakiErrorCode chiaki_takion_send_feedback_state(ChiakiTakion *takion, ChiakiSe
 	return CHIAKI_ERR_SUCCESS;
 }
 
-ChiakiErrorCode chiaki_takion_send_feedback_history(ChiakiTakion *takion, ChiakiSeqNum16 seq, uint8_t *payload, size_t size)
+ChiakiErrorCode chiaki_takion_send_feedback_history(ChiakiTakion *takion, ChiakiSeqNum16 seq, uint8_t event_count, uint8_t *payload, size_t size)
 {
 	CHECK(takion == &replay.takion && !replay.locked && replay.history_count < COUNT(replay.history));
 	HistoryPacket *packet = &replay.history[replay.history_count++];
 	CHECK(size && size <= sizeof(packet->bytes));
+	CHECK(event_count == size / 3 && size % 3 == 0);
 	packet->seq = seq;
 	packet->at_ms = replay.now_ms;
 	packet->size = size;
@@ -237,7 +238,7 @@ static void test_replay_loss_reorder_and_wrap(void)
 	puts("Feedback replay passed: loss with later input, stale/duplicate delivery, 16-bit wrap");
 }
 
-static void report_lost_final_release(void)
+static void test_lost_final_release(void)
 {
 	static const InputStep steps[] = {{10, CHIAKI_CONTROLLER_BUTTON_CROSS}, {RELEASE_TIME, 0}};
 	run(steps, COUNT(steps), 0, END_TIME);
@@ -253,15 +254,47 @@ static void report_lost_final_release(void)
 	// never confuse periodic stick/gyro state packets with button history.
 	for(size_t i = 2; i < replay.history_count; ++i)
 		deliver(&damaged, &replay.history[i]);
-	printf("Feedback replay diagnostic: lost final release cross=%s after %u ms idle"
+	CHECK(damaged.buttons == 0);
+	static const uint64_t resend_times[] = {40, 70, 120, 220};
+	CHECK(replay.history_count == 2 + COUNT(resend_times));
+	const HistoryPacket *release = &replay.history[1];
+	for(size_t i = 0; i < COUNT(resend_times); ++i)
+	{
+		const HistoryPacket *resend = &replay.history[2 + i];
+		CHECK(resend->at_ms == resend_times[i]);
+		CHECK(resend->seq == release->seq && resend->size == release->size);
+		CHECK(memcmp(resend->bytes, release->bytes, release->size) == 0);
+	}
+	printf("Feedback replay passed: lost final release recovered after %u ms idle"
 			" (%zu subsequent history, %zu periodic state packets)\n",
-			damaged.buttons & CHIAKI_CONTROLLER_BUTTON_CROSS ? "still-held" : "released",
 			(unsigned)(END_TIME - RELEASE_TIME), replay.history_count - 2, replay.state_count);
+}
+
+
+static void test_simultaneous_buttons(void)
+{
+	static const InputStep steps[] = {
+		{10, CHIAKI_CONTROLLER_BUTTON_CROSS | CHIAKI_CONTROLLER_BUTTON_MOON},
+		{20, 0},
+	};
+	run(steps, COUNT(steps), 0, 30);
+	CHECK(replay.history_count == 4);
+	ReferenceReceiver rx = {0};
+	for(size_t i = 0; i < replay.history_count; ++i)
+	{
+		CHECK(replay.history[i].seq == i);
+		CHECK(deliver(&rx, &replay.history[i]));
+		if(i == 1)
+			CHECK(rx.buttons == (CHIAKI_CONTROLLER_BUTTON_CROSS | CHIAKI_CONTROLLER_BUTTON_MOON));
+	}
+	CHECK(rx.buttons == 0);
+	puts("Candidate preserves two simultaneous press and release transitions in four numbered history packets");
 }
 
 int main(void)
 {
 	test_replay_loss_reorder_and_wrap();
-	report_lost_final_release();
+	test_lost_final_release();
+	test_simultaneous_buttons();
 	return EXIT_SUCCESS;
 }
