@@ -90,6 +90,7 @@ struct Render {
         pl_d3d11_params params{};
         params.device = existing;
         params.force_software = warp;
+        params.allow_software = warp;
         device = pl_d3d11_create(log, &params);
         if (!device || device->software != warp)
             return false;
