@@ -183,7 +183,15 @@ int real_main(int argc, char *argv[])
 	QCommandLineOption passcode_option("passcode", "Automatically send your PlayStation login passcode (only affects users with a login passcode set on their PlayStation console).", "passcode");
 	parser.addOption(passcode_option);
 
+#ifdef Q_OS_WIN
+	QCommandLineOption pull_audio_option("audio-pull", "Use the experimental callback-driven game audio output.");
+	parser.addOption(pull_audio_option);
+#endif
 	parser.process(app);
+#ifdef Q_OS_WIN
+	if(parser.isSet(pull_audio_option))
+		qputenv("RCP_AUDIO_PULL", "1");
+#endif
 	QStringList args = parser.positionalArguments();
 
 	Settings settings(parser.isSet(profile_option) ? parser.value(profile_option) : QString());
