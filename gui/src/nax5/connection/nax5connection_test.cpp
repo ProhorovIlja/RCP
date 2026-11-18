@@ -139,9 +139,9 @@ static void test_operator_namespace()
 {
     qunsetenv("NAX5_OPERATOR_MODE");
     expect(Nax5Runtime::settingsOrganizationName() == QStringLiteral("NAX5"), "org");
-    expect(Nax5Runtime::settingsApplicationName() == QStringLiteral("NAX5"), "product app");
+    expect(Nax5Runtime::settingsApplicationName() == QStringLiteral("RCP"), "isolated RCP product app");
     qputenv("NAX5_OPERATOR_MODE", "1");
-    expect(Nax5Runtime::settingsApplicationName() == QStringLiteral("NAX5-Operator"), "operator app");
+    expect(Nax5Runtime::settingsApplicationName() == QStringLiteral("RCP-Operator"), "isolated RCP operator app");
     const QString previous = Nax5Runtime::lastOperatorConsoleCode();
     Nax5Runtime::setLastOperatorConsoleCode(QStringLiteral("PS5-439"));
     expect(Nax5Runtime::lastOperatorConsoleCode() == QStringLiteral("PS5-439"), "operator persist");
