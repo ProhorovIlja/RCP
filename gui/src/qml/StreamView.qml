@@ -303,6 +303,7 @@ Item {
             readonly property real packetLoss: session ? session.averagePacketLoss : NaN
             readonly property int localDrops: Chiaki.window.localDroppedFrames
             readonly property real frameAgeMs: Chiaki.window.pendingFrameAge * 1000
+            readonly property int frameMemoryPath: Chiaki.window.frameMemoryPath
 
             Rectangle {
                 anchors.top: parent.top
@@ -339,6 +340,20 @@ Item {
                                  ? streamStatsContentRoot.bitrate.toFixed(1) : "—")
                             .arg(streamStatsContentRoot.session
                                  ? streamStatsContentRoot.session.decoderBackend : "—")
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        color: streamStatsContentRoot.frameMemoryPath === 3 ? "#ffcd9d" : "#b6c1cd"
+                        text: {
+                            switch (streamStatsContentRoot.frameMemoryPath) {
+                            case 1: return qsTr("Кадры на входе рендера: ОЗУ")
+                            case 2: return qsTr("Кадры на входе рендера: GPU")
+                            case 3: return qsTr("Кадры на входе рендера: копия GPU → ОЗУ")
+                            default: return qsTr("Кадры на входе рендера: —")
+                            }
+                        }
                     }
 
                     Label {

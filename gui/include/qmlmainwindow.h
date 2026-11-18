@@ -59,6 +59,7 @@ class QmlMainWindow : public QWindow
     Q_PROPERTY(int runtimeRendererBackend READ runtimeRendererBackend CONSTANT)
     Q_PROPERTY(double queueDepthAverage READ queueDepthAverage NOTIFY queueDepthAverageChanged)
     Q_PROPERTY(double pendingFrameAge READ pendingFrameAge NOTIFY pendingFrameAgeChanged)
+    Q_PROPERTY(FrameMemoryPath frameMemoryPath READ frameMemoryPath NOTIFY frameMemoryPathChanged)
 
 public:
     enum class VideoMode {
@@ -67,6 +68,14 @@ public:
         Zoom
     };
     Q_ENUM(VideoMode);
+
+    enum class FrameMemoryPath {
+        Unknown = 0,
+        SoftwareFrame,
+        HardwareFrame,
+        HardwareDownload
+    };
+    Q_ENUM(FrameMemoryPath);
 
     enum class VideoPreset {
         Fast,
@@ -104,6 +113,8 @@ public:
 
     double queueDepthAverage() const;
     double pendingFrameAge() const;
+    FrameMemoryPath frameMemoryPath() const { return frame_memory_path; }
+    void presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost, FrameMemoryPath memory_path);
 
     bool amdCard() const;
     bool nvidiaCard() const;
@@ -133,7 +144,6 @@ public slots:
     void updatePlacebo();
     void updateVSync();
     void show();
-    void presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost);
 
     AVBufferRef *vulkanHwDeviceCtx();
 
@@ -150,6 +160,7 @@ signals:
     void directStreamChanged();
     void queueDepthAverageChanged();
     void pendingFrameAgeChanged();
+    void frameMemoryPathChanged();
 
 private:
     bool makeOpenGLContextCurrent();
@@ -235,6 +246,7 @@ private:
     AVBufferRef *vulkan_hw_dev_ctx = nullptr;
     double queue_depth_average = 0.0;
     double pending_frame_age = 0.0;
+    FrameMemoryPath frame_memory_path = FrameMemoryPath::Unknown;
     uint64_t last_placebo_reset_ts = 0;
     uint64_t pending_frame_stored_us = 0;
     mutable QMutex pending_frame_age_mutex;

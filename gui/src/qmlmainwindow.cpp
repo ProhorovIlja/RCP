@@ -623,12 +623,17 @@ namespace {
 constexpr int kDefaultQueueDepthLimit = 2;
 }
 
-void QmlMainWindow::presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost)
+void QmlMainWindow::presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost, FrameMemoryPath memory_path)
 {
     dropped_frames_current.fetchAndAddRelaxed(frames_lost);
 
     if (!frame.frame)
         return;
+
+    if (frame_memory_path != memory_path) {
+        frame_memory_path = memory_path;
+        emit frameMemoryPathChanged();
+    }
 
     if (frame.recovered)
     {
@@ -1730,8 +1735,13 @@ renderer_backend_ready:
 
     backend = new QmlBackend(settings, this);
     connect(backend, &QmlBackend::sessionChanged, this, [this, exit_app_on_stream_exit](StreamSession *s) {
-        if (session != s)
+        if (session != s) {
             stopRcpMouseCapture(false);
+            if (frame_memory_path != FrameMemoryPath::Unknown) {
+                frame_memory_path = FrameMemoryPath::Unknown;
+                emit frameMemoryPathChanged();
+            }
+        }
         session = s;
         rcp_low_latency.storeRelease(s && this->settings->GetRcpLowLatency() ? 1 : 0);
         stream_session_active.storeRelease(s ? 1 : 0);

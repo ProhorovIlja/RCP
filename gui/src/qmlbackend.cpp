@@ -1043,6 +1043,7 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
         if (frame.recovered)
             pending_recovered_frame.storeRelaxed(1);
 
+        const bool was_hardware_frame = frame.frame->hw_frames_ctx != nullptr;
         if (!prepareFrameForPresentation(frame, use_opengl_renderer))
         {
             av_frame_free(&frame.frame);
@@ -1053,7 +1054,10 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
             frame.recovered = true;
         }
 
-        QMetaObject::invokeMethod(window, std::bind(&QmlMainWindow::presentFrame, window, frame, frames_lost));
+        using MemoryPath = QmlMainWindow::FrameMemoryPath;
+        const auto path = frame.frame->hw_frames_ctx ? MemoryPath::HardwareFrame
+            : was_hardware_frame ? MemoryPath::HardwareDownload : MemoryPath::SoftwareFrame;
+        QMetaObject::invokeMethod(window, std::bind(&QmlMainWindow::presentFrame, window, frame, frames_lost, path));
     });
 
     // Upstream bf132abc: a late signal from a previous session must not tear down the current one.
