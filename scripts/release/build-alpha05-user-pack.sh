@@ -97,6 +97,10 @@ cmake -S "$ROOT" -B "$BUILD" -G Ninja \
   -DCHIAKI_ENABLE_TESTS=ON \
   -DNAX5_STREAM_REPLAY=OFF
 
+echo "building and checking the standalone D3D11 lab..."
+cmake --build "$BUILD" --config Release --target rcp-d3d11-lab
+"$BUILD/gui/rcp-d3d11-lab.exe" --warp-smoke
+
 echo "building chiaki..."
 cmake --build "$BUILD" --config Release --target chiaki
 echo "building unit tests..."
@@ -152,6 +156,14 @@ rm -f "$USER_DIR"/ALPHA0*.md
 cp -f "$ROOT/docs/acceptance/ALPHA05-USER-TEST.md" "$USER_DIR/ALPHA05-USER-TEST.md"
 cp -f "$ROOT/scripts/release/README-USER-alpha05.txt" "$USER_DIR/README-USER.txt"
 cp -f "$ROOT/docs/RCP-QUICKSTART.md" "$USER_DIR/RCP-QUICKSTART.md"
+cp -f "$ROOT/docs/RCP-D3D11-LAB.md" "$USER_DIR/RCP-D3D11-LAB.md"
+cp -f "$BUILD/gui/rcp-d3d11-lab.exe" "$USER_DIR/rcp-d3d11-lab.exe"
+ffmpeg -nostdin -hide_banner -loglevel error -y \\
+  -f lavfi -i testsrc2=size=1920x1080:rate=60 -frames:v 120 \\
+  -an -pix_fmt yuv420p -c:v libx265 -preset ultrafast -tune zerolatency \\
+  -x265-params pools=2:frame-threads=2:log-level=error \\
+  -color_primaries bt709 -colorspace bt709 -color_trc bt709 -color_range tv \\
+  "$USER_DIR/rcp-d3d11-demo.mkv"
 cp -f "$ROOT/COPYING" "$ROOT/THIRD-PARTY-NOTICES.md" "$USER_DIR/"
 cp -a "$ROOT/LICENSES" "$USER_DIR/"
 

@@ -184,6 +184,14 @@ add_library(placebo-libav-impl src/libav_impl.c)
 target_link_libraries(placebo-libav-impl PkgConfig::LIBPLACEBO FFMPEG::avcodec FFMPEG::avutil FFMPEG::avformat)
 target_link_libraries(chiaki PkgConfig::LIBPLACEBO placebo-libav-impl)
 
+# Standalone, opt-in Windows video lab. The launcher never loads this tool.
+if(WIN32 AND TARGET FFMPEG::avformat)
+    add_executable(rcp-d3d11-lab tools/rcp_d3d11_lab.cpp)
+    target_compile_features(rcp-d3d11-lab PRIVATE cxx_std_17)
+    target_link_libraries(rcp-d3d11-lab PRIVATE
+        PkgConfig::LIBPLACEBO placebo-libav-impl FFMPEG::avcodec FFMPEG::avutil FFMPEG::avformat user32)
+endif()
+
 target_link_libraries(chiaki chiaki-lib)
 
 # Test-only stream replay (recorded media instead of a PS5). Never enable for
