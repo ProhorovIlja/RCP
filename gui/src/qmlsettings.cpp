@@ -494,6 +494,42 @@ void QmlSettings::applyRcpRemotePreset(bool stability)
     setBitrateRemotePS5(stability ? 10000 : 15000);
 }
 
+void QmlSettings::applyRcpDataSaverPreset()
+{
+    setResolutionRemotePS5(CHIAKI_VIDEO_RESOLUTION_PRESET_540p);
+    setFpsRemotePS5(CHIAKI_VIDEO_FPS_PRESET_60);
+    setCodecRemotePS5(CHIAKI_CODEC_H265);
+    setBitrateRemotePS5(6000);
+}
+
+bool QmlSettings::rcpLowLatency() const { return settings->GetRcpLowLatency(); }
+void QmlSettings::setRcpLowLatency(bool value)
+{
+    if (rcpLowLatency() == value)
+        return;
+    settings->SetRcpLowLatency(value);
+    emit rcpLowLatencyChanged();
+}
+
+int QmlSettings::rcpMouseSensitivity() const { return qBound(25, settings->GetRcpMouseSensitivity(), 300); }
+void QmlSettings::setRcpMouseSensitivity(int value)
+{
+    value = qBound(25, value, 300);
+    if (rcpMouseSensitivity() == value)
+        return;
+    settings->SetRcpMouseSensitivity(value);
+    emit rcpMouseSensitivityChanged();
+}
+
+bool QmlSettings::rcpMouseInvertY() const { return settings->GetRcpMouseInvertY(); }
+void QmlSettings::setRcpMouseInvertY(bool invert)
+{
+    if (rcpMouseInvertY() == invert)
+        return;
+    settings->SetRcpMouseInvertY(invert);
+    emit rcpMouseInvertYChanged();
+}
+
 int QmlSettings::displayTargetContrast() const
 {
     return settings->GetDisplayTargetContrast();
@@ -1840,6 +1876,9 @@ void QmlSettings::refreshAllKeys()
     emit resolutionRemotePS4Changed();
     emit resolutionLocalPS5Changed();
     emit resolutionRemotePS5Changed();
+    emit rcpLowLatencyChanged();
+    emit rcpMouseSensitivityChanged();
+    emit rcpMouseInvertYChanged();
     emit disconnectActionChanged();
     emit suspendActionChanged();
     emit logVerboseChanged();

@@ -38,6 +38,9 @@ extern "C" {
 #include <QQuickGraphicsDevice>
 #include <QTimer>
 #include <QtGlobal>
+#if defined(Q_OS_WIN)
+#include <qt_windows.h>
+#endif
 #include <cstring>
 #include <utility>
 #if defined(Q_OS_MACOS)
@@ -341,6 +344,7 @@ QmlMainWindow::QmlMainWindow(const StreamSessionConnectInfo &connect_info)
 
 QmlMainWindow::~QmlMainWindow()
 {
+    stopRcpMouseCapture(false);
     Q_ASSERT(!placebo_swapchain);
 
     if (render_backend == RenderBackend::Vulkan)
@@ -506,6 +510,7 @@ void QmlMainWindow::setKeepVideo(bool keep)
 
 void QmlMainWindow::grabInput()
 {
+    stopRcpMouseCapture();
     setCursor(Qt::ArrowCursor);
     grab_input++;
     if (session)
@@ -616,7 +621,6 @@ void QmlMainWindow::show()
 
 namespace {
 constexpr int kDefaultQueueDepthLimit = 2;
-constexpr int kAdaptiveQueueDepthBoost = 1;
 }
 
 void QmlMainWindow::presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost)
@@ -1344,15 +1348,10 @@ bool QmlMainWindow::hasPendingFrame() const
 
 int QmlMainWindow::effectiveQueueDepthLimit() const
 {
+    if (rcp_low_latency.loadAcquire() != 0)
+        return rcp::renderQueueLimit(kDefaultQueueDepthLimit, true, false, 0.0);
     const int configured_limit = settings ? settings->GetQueueDepthLimit() : kDefaultQueueDepthLimit;
-    int depth_limit = qMax(configured_limit, 2);
-
-    const bool backlog_pending = hasPendingFrame();
-    const double avg_depth = queue_depth_average;
-    if (backlog_pending || avg_depth >= static_cast<double>(depth_limit) - 0.25)
-        depth_limit += kAdaptiveQueueDepthBoost;
-
-    return depth_limit;
+    return rcp::renderQueueLimit(configured_limit, false, hasPendingFrame(), queue_depth_average);
 }
 
 AVBufferRef *QmlMainWindow::vulkanHwDeviceCtx()
@@ -1731,7 +1730,10 @@ renderer_backend_ready:
 
     backend = new QmlBackend(settings, this);
     connect(backend, &QmlBackend::sessionChanged, this, [this, exit_app_on_stream_exit](StreamSession *s) {
+        if (session != s)
+            stopRcpMouseCapture(false);
         session = s;
+        rcp_low_latency.storeRelease(s && this->settings->GetRcpLowLatency() ? 1 : 0);
         stream_session_active.storeRelease(s ? 1 : 0);
         grab_input = 0;
         if (session)
@@ -2769,12 +2771,110 @@ bool QmlMainWindow::nvidiaCard() const
     return nvidia_card;
 }
 
+#if defined(Q_OS_WIN)
+bool QmlMainWindow::startRcpMouseCapture()
+{
+    if (rcp_mouse_captured || !session || !has_video || grab_input || !isActive())
+        return false;
+    RAWINPUTDEVICE device{0x01, 0x02, 0, reinterpret_cast<HWND>(winId())};
+    if (!RegisterRawInputDevices(&device, 1, sizeof(device))) {
+        qCWarning(chiakiGui) << "RCP mouse capture registration failed:" << GetLastError();
+        return false;
+    }
+
+    rcp_mouse_sensitivity = settings->GetRcpMouseSensitivity();
+    rcp_mouse_invert_y = settings->GetRcpMouseInvertY();
+    rcp_mouse_look.reset();
+    session->ResetRcpInput();
+    rcp_mouse_clock.start();
+    if (!rcp_mouse_timer) {
+        rcp_mouse_timer = new QTimer(this);
+        rcp_mouse_timer->setTimerType(Qt::PreciseTimer);
+        rcp_mouse_timer->setInterval(4);
+        connect(rcp_mouse_timer, &QTimer::timeout, this, [this]() {
+            if (!rcp_mouse_captured || !session)
+                return;
+            if (const auto stick = rcp_mouse_look.sample(rcp_mouse_clock.nsecsElapsed() / 1000,
+                    rcp_mouse_sensitivity, rcp_mouse_invert_y))
+                session->SetRcpMouseLook(stick->x, stick->y);
+        });
+    }
+    rcp_mouse_captured = true;
+    rcp_mouse_grabbed = setMouseGrabEnabled(true);
+    setCursor(Qt::BlankCursor);
+    rcp_mouse_timer->start();
+    emit rcpMouseCapturedChanged();
+    return true;
+}
+
+bool QmlMainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+{
+    if (rcp_mouse_captured && session && isActive() && !grab_input &&
+        eventType == QByteArrayLiteral("windows_generic_MSG") && message) {
+        const auto *msg = static_cast<const MSG *>(message);
+        if (msg->message == WM_INPUT) {
+            RAWINPUT raw{};
+            UINT bytes = sizeof(raw);
+            const UINT read = GetRawInputData(reinterpret_cast<HRAWINPUT>(msg->lParam),
+                                              RID_INPUT, &raw, &bytes, sizeof(RAWINPUTHEADER));
+            if (read != static_cast<UINT>(-1) && read >= sizeof(RAWINPUTHEADER) + sizeof(RAWMOUSE) &&
+                raw.header.dwType == RIM_TYPEMOUSE) {
+                const auto &mouse = raw.data.mouse;
+                if (!(mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
+                    if (const auto stick = rcp_mouse_look.move(mouse.lLastX, mouse.lLastY,
+                        rcp_mouse_clock.nsecsElapsed() / 1000, rcp_mouse_sensitivity, rcp_mouse_invert_y))
+                        session->SetRcpMouseLook(stick->x, stick->y);
+                }
+                const USHORT buttons = mouse.usButtonFlags;
+                if (buttons & RI_MOUSE_LEFT_BUTTON_DOWN) session->SetRcpMouseButton(Qt::LeftButton, true);
+                if (buttons & RI_MOUSE_LEFT_BUTTON_UP) session->SetRcpMouseButton(Qt::LeftButton, false);
+                if (buttons & RI_MOUSE_RIGHT_BUTTON_DOWN) session->SetRcpMouseButton(Qt::RightButton, true);
+                if (buttons & RI_MOUSE_RIGHT_BUTTON_UP) session->SetRcpMouseButton(Qt::RightButton, false);
+                if (buttons & RI_MOUSE_MIDDLE_BUTTON_DOWN) session->SetRcpMouseButton(Qt::MiddleButton, true);
+                if (buttons & RI_MOUSE_MIDDLE_BUTTON_UP) session->SetRcpMouseButton(Qt::MiddleButton, false);
+            }
+            // Let Qt/DefWindowProc finish processing the native message.
+        }
+    }
+    return QWindow::nativeEvent(eventType, message, result);
+}
+#endif
+
+void QmlMainWindow::stopRcpMouseCapture(bool reset_input)
+{
+#if defined(Q_OS_WIN)
+    if (!rcp_mouse_captured)
+        return;
+    rcp_mouse_captured = false;
+    rcp_mouse_timer->stop();
+    rcp_mouse_look.reset();
+    if (rcp_mouse_grabbed)
+        setMouseGrabEnabled(false);
+    rcp_mouse_grabbed = false;
+    RAWINPUTDEVICE device{0x01, 0x02, RIDEV_REMOVE, nullptr};
+    RegisterRawInputDevices(&device, 1, sizeof(device));
+    if (reset_input && session)
+        session->ResetRcpInput();
+    setCursor(!grab_input && has_video && settings->GetHideCursor() ? Qt::BlankCursor : Qt::ArrowCursor);
+    emit rcpMouseCapturedChanged();
+#else
+    Q_UNUSED(reset_input);
+#endif
+}
+
 bool QmlMainWindow::event(QEvent *event)
 {
     switch (event->type()) {
+    case QEvent::FocusOut:
+    case QEvent::WindowDeactivate:
+    case QEvent::Hide:
+        stopRcpMouseCapture();
+        break;
     case QEvent::MouseMove:
     case QEvent::MouseButtonPress:
     case QEvent::MouseButtonRelease:
+        if (rcp_mouse_captured)
+            return true;
         if (static_cast<QMouseEvent*>(event)->source() != Qt::MouseEventNotSynthesized)
             return true;
         if (session && !grab_input) {
@@ -2789,6 +2889,8 @@ bool QmlMainWindow::event(QEvent *event)
         QGuiApplication::sendEvent(quick_window, event);
         break;
     case QEvent::MouseButtonDblClick:
+        if (rcp_mouse_captured)
+            return true;
         if(!settings->GetFullscreenDoubleClickEnabled())
             break;
         if (session && !grab_input) {
@@ -2799,11 +2901,30 @@ bool QmlMainWindow::event(QEvent *event)
         }
         break;
     case QEvent::KeyPress:
-        if (handleShortcut(static_cast<QKeyEvent*>(event)))
+    case QEvent::KeyRelease: {
+        auto *e = static_cast<QKeyEvent*>(event);
+#if defined(Q_OS_WIN)
+        if (e->spontaneous() && event->type() == QEvent::KeyPress) {
+            if (e->key() == Qt::Key_F8 && session && has_video && !grab_input) {
+                if (!e->isAutoRepeat()) {
+                    if (rcp_mouse_captured)
+                        stopRcpMouseCapture();
+                    else
+                        startRcpMouseCapture();
+                }
+                return true;
+            }
+            if (rcp_mouse_captured && e->key() == Qt::Key_Escape) {
+                stopRcpMouseCapture();
+                return true;
+            }
+        }
+#endif
+        if (rcp_mouse_captured && session && !grab_input && e->spontaneous() && session->HandleRcpKey(e))
             return true;
-    case QEvent::KeyRelease:
+        if (event->type() == QEvent::KeyPress && handleShortcut(e))
+            return true;
         if (session && !grab_input) {
-            QKeyEvent *e = static_cast<QKeyEvent*>(event);
             if (!e->spontaneous()) {
                 QGuiApplication::sendEvent(quick_window, event);
                 return true;
@@ -2814,6 +2935,7 @@ bool QmlMainWindow::event(QEvent *event)
         }
         QGuiApplication::sendEvent(quick_window, event);
         break;
+    }
     case QEvent::TouchBegin:
     case QEvent::TouchUpdate:
     case QEvent::TouchEnd:
@@ -2824,6 +2946,7 @@ bool QmlMainWindow::event(QEvent *event)
         QGuiApplication::sendEvent(quick_window, event);
         break;
     case QEvent::Close:
+        stopRcpMouseCapture();
         if (!backend->closeRequested()) {
             event->ignore();
             return true;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <streamsession.h>
+#include "rcp/mouse_look.h"
 #include "nax5/session/nax5sessionlifecycle.h"
 #ifdef NAX5_STREAM_REPLAY
 #include "nax5/nax5streamreplay.h"
@@ -338,6 +339,8 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	}
 
 	chiaki_controller_state_set_idle(&keyboard_state);
+    chiaki_controller_state_set_idle(&rcp_mouse_state);
+    chiaki_controller_state_set_idle(&rcp_key_state);
 	chiaki_controller_state_set_idle(&touch_state);
 	touch_tracker=QMap<int, uint8_t>();
 	mouse_touch_id=-1;
@@ -773,6 +776,81 @@ void StreamSession::HandleMouseMoveEvent(QMouseEvent *event, qreal width, qreal 
 	SendFeedbackState();
 }
 
+void StreamSession::ResetRcpInput()
+{
+    rcp_keys.clear();
+    chiaki_controller_state_set_idle(&rcp_mouse_state);
+    chiaki_controller_state_set_idle(&rcp_key_state);
+    chiaki_controller_state_set_idle(&keyboard_state);
+    mouse_touch_id = -1;
+    SendFeedbackState();
+}
+
+void StreamSession::SetRcpMouseLook(int x, int y)
+{
+    if (rcp_mouse_state.right_x == x && rcp_mouse_state.right_y == y)
+        return;
+    rcp_mouse_state.right_x = static_cast<int16_t>(x);
+    rcp_mouse_state.right_y = static_cast<int16_t>(y);
+    SendFeedbackState();
+}
+
+void StreamSession::SetRcpMouseButton(Qt::MouseButton button, bool pressed)
+{
+    switch (button) {
+        case Qt::LeftButton: rcp_mouse_state.r2_state = pressed ? 0xff : 0; break;
+        case Qt::RightButton: rcp_mouse_state.l2_state = pressed ? 0xff : 0; break;
+        case Qt::MiddleButton:
+            if (pressed)
+                rcp_mouse_state.buttons |= CHIAKI_CONTROLLER_BUTTON_R3;
+            else
+                rcp_mouse_state.buttons &= ~CHIAKI_CONTROLLER_BUTTON_R3;
+            break;
+        default: return;
+    }
+    SendFeedbackState();
+}
+
+bool StreamSession::HandleRcpKey(QKeyEvent *event)
+{
+    static const QMap<int, uint32_t> buttons{
+        {Qt::Key_Space, CHIAKI_CONTROLLER_BUTTON_CROSS},
+        {Qt::Key_E, CHIAKI_CONTROLLER_BUTTON_PYRAMID},
+        {Qt::Key_R, CHIAKI_CONTROLLER_BUTTON_BOX},
+        {Qt::Key_Control, CHIAKI_CONTROLLER_BUTTON_MOON},
+        {Qt::Key_Shift, CHIAKI_CONTROLLER_BUTTON_L3},
+        {Qt::Key_C, CHIAKI_CONTROLLER_BUTTON_R3},
+        {Qt::Key_Q, CHIAKI_CONTROLLER_BUTTON_L1},
+        {Qt::Key_F, CHIAKI_CONTROLLER_BUTTON_R1},
+        {Qt::Key_Tab, CHIAKI_CONTROLLER_BUTTON_TOUCHPAD},
+        {Qt::Key_Return, CHIAKI_CONTROLLER_BUTTON_OPTIONS},
+        {Qt::Key_Up, CHIAKI_CONTROLLER_BUTTON_DPAD_UP},
+        {Qt::Key_Down, CHIAKI_CONTROLLER_BUTTON_DPAD_DOWN},
+        {Qt::Key_Left, CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT},
+        {Qt::Key_Right, CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT}
+    };
+    const int key = event->key();
+    if (!buttons.contains(key) && key != Qt::Key_W && key != Qt::Key_A && key != Qt::Key_S && key != Qt::Key_D)
+        return false;
+    if (event->isAutoRepeat())
+        return true;
+
+    if (event->type() == QEvent::KeyPress)
+        rcp_keys.insert(key);
+    else
+        rcp_keys.remove(key);
+    const bool left = rcp_keys.contains(Qt::Key_A), right = rcp_keys.contains(Qt::Key_D);
+    const bool up = rcp_keys.contains(Qt::Key_W), down = rcp_keys.contains(Qt::Key_S);
+    const bool diagonal = (left != right) && (up != down);
+    rcp_key_state.left_x = rcp::movementAxis(left, right, diagonal);
+    rcp_key_state.left_y = rcp::movementAxis(up, down, diagonal);
+    rcp_key_state.buttons = 0;
+    for (int held : rcp_keys)
+        rcp_key_state.buttons |= buttons.value(held);
+    SendFeedbackState();
+    return true;
+}
+
 void StreamSession::HandleKeyboardEvent(QKeyEvent *event)
 {
 	if(!keyboard_controller_enabled)
@@ -1083,6 +1161,8 @@ void StreamSession::DpadSendFeedbackState()
 	chiaki_controller_state_or(&state, &state, &sdeck_state);
 #endif
 	chiaki_controller_state_or(&state, &state, &keyboard_state);
+    chiaki_controller_state_or(&state, &state, &rcp_mouse_state);
+    chiaki_controller_state_or(&state, &state, &rcp_key_state);
 	chiaki_controller_state_or(&state, &state, &touch_state);
 
 	if(input_block)
@@ -1139,6 +1219,8 @@ void StreamSession::SendFeedbackState()
 	chiaki_controller_state_or(&state, &state, &sdeck_state);
 #endif
 	chiaki_controller_state_or(&state, &state, &keyboard_state);
+    chiaki_controller_state_or(&state, &state, &rcp_mouse_state);
+    chiaki_controller_state_or(&state, &state, &rcp_key_state);
 	chiaki_controller_state_or(&state, &state, &touch_state);
 
 	if(input_block)

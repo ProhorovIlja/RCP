@@ -25,6 +25,7 @@ set(SOURCE_FILES
 	include/discoverymanager.h
 	src/discoverymanager.cpp
 	include/streamsession.h
+	include/rcp/mouse_look.h
 	src/streamsession.cpp
 	include/sessionlog.h
 	src/sessionlog.cpp
@@ -209,7 +210,7 @@ if (${Qt6WebEngineQuick_FOUND})
 endif()
 target_link_libraries(chiaki SDL2::SDL2)
 if(WIN32)
-	target_link_libraries(chiaki iphlpapi ws2_32 wlanapi)
+	target_link_libraries(chiaki iphlpapi ws2_32 wlanapi user32)
 endif()
 if(CHIAKI_ENABLE_SPEEX)
   target_link_libraries(chiaki PkgConfig::SpeexDSP)
@@ -256,6 +257,11 @@ install(FILES chiaking.png DESTINATION share/icons/hicolor/512x512/apps)
 install(FILES io.github.streetpea.Chiaki4deck.appdata.xml DESTINATION share/metainfo)
 
 if(CHIAKI_ENABLE_TESTS)
+    add_executable(rcp-input-unit src/rcp_input_test.cpp)
+    target_include_directories(rcp-input-unit PRIVATE include)
+    target_compile_features(rcp-input-unit PRIVATE cxx_std_17)
+    add_test(NAME rcp-input COMMAND rcp-input-unit)
+
 	add_executable(nax5-auth-unit
 		src/nax5/nax5apiconfig.cpp
 		src/nax5/nax5runtime.cpp

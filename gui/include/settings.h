@@ -249,6 +249,13 @@ class Settings : public QObject
 		void SetLogVerbose(bool enabled)		{ settings.setValue("settings/log_verbose", enabled); }
 		bool GetLogSanitize() const            { return settings.value("settings/log_sanitize", true).toBool(); }
 		void SetLogSanitize(bool enabled)      { settings.setValue("settings/log_sanitize", enabled); }
+        bool GetRcpLowLatency() const { return settings.value("rcp/low_latency", false).toBool(); }
+        void SetRcpLowLatency(bool value) { settings.setValue("rcp/low_latency", value); }
+        int GetRcpMouseSensitivity() const { return settings.value("rcp/mouse_sensitivity", 100).toInt(); }
+        void SetRcpMouseSensitivity(int value) { settings.setValue("rcp/mouse_sensitivity", value); }
+        bool GetRcpMouseInvertY() const { return settings.value("rcp/mouse_invert_y", false).toBool(); }
+        void SetRcpMouseInvertY(bool invert) { settings.setValue("rcp/mouse_invert_y", invert); }
+
 		bool GetVSyncEnabled() const           { return settings.value("settings/vsync", true).toBool(); }
 		void SetVSyncEnabled(bool enabled)     { settings.setValue("settings/vsync", enabled); }
 		uint32_t GetLogLevelMask();

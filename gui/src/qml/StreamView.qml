@@ -327,7 +327,7 @@ Item {
                     Label {
                         font.bold: true
                         color: "#9cdcff"
-                        text: qsTr("RCP · поток")
+                        text: Chiaki.window.rcpMouseCaptured ? qsTr("RCP · поток · мышь F8 / Esc") : qsTr("RCP · поток")
                     }
 
                     Label {

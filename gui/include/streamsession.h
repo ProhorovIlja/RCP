@@ -35,6 +35,7 @@
 #include <QObject>
 #include <QImage>
 #include <QMouseEvent>
+#include <QSet>
 #include <QMutex>
 #include <QTimer>
 #include <QQueue>
@@ -226,6 +227,9 @@ class StreamSession : public QObject
 		bool rumble_haptics_on;
 		float PS_TOUCHPAD_MAX_X, PS_TOUCHPAD_MAX_Y;
 		ChiakiControllerState keyboard_state;
+        ChiakiControllerState rcp_mouse_state;
+        ChiakiControllerState rcp_key_state;
+        QSet<int> rcp_keys;
 		ChiakiControllerState touch_state;
 		QMap<int, uint8_t> touch_tracker;
 		int8_t mouse_touch_id;
@@ -373,6 +377,10 @@ class StreamSession : public QObject
 		ChiakiPiDecoder *GetPiDecoder()	{ return pi_decoder; }
 #endif
 		void HandleKeyboardEvent(QKeyEvent *event);
+        void ResetRcpInput();
+        void SetRcpMouseLook(int x, int y);
+        void SetRcpMouseButton(Qt::MouseButton button, bool pressed);
+        bool HandleRcpKey(QKeyEvent *event);
 		void HandleTouchEvent(QTouchEvent *event, qreal width, qreal height);
 		void HandleDpadTouchEvent(ChiakiControllerState *state, bool placeholder = false);
 		void HandleMouseReleaseEvent(QMouseEvent *event);

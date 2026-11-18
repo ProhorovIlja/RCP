@@ -2,8 +2,10 @@
 
 #include "streamsession.h"
 #include "settings.h"
+#include "rcp/mouse_look.h"
 
 #include <QMutex>
+#include <QElapsedTimer>
 #include <QAtomicInteger>
 #include <QWindow>
 #include <QQuickWindow>
@@ -46,6 +48,7 @@ class QmlMainWindow : public QWindow
 {
     Q_OBJECT
     Q_PROPERTY(bool hasVideo READ hasVideo NOTIFY hasVideoChanged)
+    Q_PROPERTY(bool rcpMouseCaptured READ rcpMouseCaptured NOTIFY rcpMouseCapturedChanged)
     Q_PROPERTY(int droppedFrames READ droppedFrames NOTIFY droppedFramesChanged)
     Q_PROPERTY(int localDroppedFrames READ localDroppedFrames NOTIFY localDroppedFramesChanged)
     Q_PROPERTY(bool keepVideo READ keepVideo WRITE setKeepVideo NOTIFY keepVideoChanged)
@@ -82,6 +85,7 @@ public:
     void setSettings(Settings *new_settings);
 
     bool hasVideo() const;
+    bool rcpMouseCaptured() const { return rcp_mouse_captured; }
     int droppedFrames() const;
     int localDroppedFrames() const { return local_dropped_frames; }
     void increaseDroppedFrames();
@@ -135,6 +139,7 @@ public slots:
 
 signals:
     void hasVideoChanged();
+    void rcpMouseCapturedChanged();
     void droppedFramesChanged();
     void localDroppedFramesChanged();
     void keepVideoChanged();
@@ -177,6 +182,11 @@ private:
     void snapshotPendingFrame();
     bool handleShortcut(QKeyEvent *event);
     bool event(QEvent *event) override;
+#if defined(Q_OS_WIN)
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
+    bool startRcpMouseCapture();
+#endif
+    void stopRcpMouseCapture(bool reset_input = true);
     QObject *focusObject() const override;
     void updateQueueDepthAverage(int depth);
     void updatePendingFrameAge(double age);
@@ -198,6 +208,16 @@ private:
     bool keep_video = false;
     RenderBackend render_backend = RenderBackend::Vulkan;
     int grab_input = 0;
+    QAtomicInteger<int> rcp_low_latency = 0;
+    bool rcp_mouse_captured = false;
+#if defined(Q_OS_WIN)
+    bool rcp_mouse_grabbed = false;
+    int rcp_mouse_sensitivity = 100;
+    bool rcp_mouse_invert_y = false;
+    rcp::MouseLook rcp_mouse_look;
+    QElapsedTimer rcp_mouse_clock;
+    QTimer *rcp_mouse_timer = nullptr;
+#endif
     int dropped_frames = 0;
     bool is_window_adjustable = false;
     bool is_stream_window_adjustable = false;

@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: rcp-windows-${{ github.event_name }}-${{ github.ref }}
+  group: rcp-windows-${{ github.event_name }}-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:

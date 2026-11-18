@@ -109,6 +109,10 @@ Rectangle {
                         text: qsTr("Стабильность")
                         onClicked: Chiaki.settings.applyRcpRemotePreset(true)
                     }
+                    Button {
+                        text: qsTr("Экономия")
+                        onClicked: Chiaki.settings.applyRcpDataSaverPreset()
+                    }
                     Item { Layout.fillWidth: true }
                 }
 
@@ -134,11 +138,39 @@ Rectangle {
                     onToggled: Chiaki.settings.showStreamStats = checked
                 }
 
+                CheckBox {
+                    text: qsTr("Меньше задержка · очередь до 2 кадров")
+                    checked: Chiaki.settings.rcpLowLatency
+                    onToggled: Chiaki.settings.rcpLowLatency = checked
+                }
+
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                     color: "#b6c1cd"
-                    text: qsTr("DualSense лучше подключить по USB. Звук и аппаратный декодер можно выбрать в настройках.")
+                    text: Qt.platform.os === "windows"
+                        ? qsTr("DualSense по USB или F8 в игре для мыши и WASD. Esc освобождает мышь.")
+                        : qsTr("DualSense лучше подключить по USB.")
+                }
+
+                RowLayout {
+                    visible: Qt.platform.os === "windows"
+                    Layout.fillWidth: true
+                    Label { text: qsTr("Мышь, %") }
+                    Slider {
+                        Layout.fillWidth: true
+                        from: 25
+                        to: 300
+                        stepSize: 5
+                        value: Chiaki.settings.rcpMouseSensitivity
+                        onMoved: Chiaki.settings.rcpMouseSensitivity = Math.round(value)
+                    }
+                    Label { text: Chiaki.settings.rcpMouseSensitivity + "%" }
+                    CheckBox {
+                        text: qsTr("Инвертировать Y")
+                        checked: Chiaki.settings.rcpMouseInvertY
+                        onToggled: Chiaki.settings.rcpMouseInvertY = checked
+                    }
                 }
             }
         }

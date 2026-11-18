@@ -17,11 +17,17 @@ foreach ($rule in @(
 }
 if ([regex]::Matches($preset, '\bset\w+\(').Count -ne 4) { throw 'Presets must leave unrelated settings alone' }
 
+$saver = [regex]::Match($settings, '(?s)void QmlSettings::applyRcpDataSaverPreset\(\)\s*\{(.*?)\}').Groups[1].Value
+foreach ($rule in @('CHIAKI_VIDEO_RESOLUTION_PRESET_540p', 'CHIAKI_VIDEO_FPS_PRESET_60', 'CHIAKI_CODEC_H265', 'setBitrateRemotePS5\(6000\)')) {
+    if ($saver -notmatch $rule) { throw "Unexpected data saver preset: $rule" }
+}
+if ([regex]::Matches($saver, '\bset\w+\(').Count -ne 4) { throw 'Data saver must leave unrelated settings alone' }
+
 $panel = Read-Source 'gui/src/qml/Nax5PlayPanel.qml'
 if ($panel -notmatch 'applyRcpRemotePreset\(false\)' -or $panel -notmatch 'applyRcpRemotePreset\(true\)') {
     throw 'Both presets must be wired to the play panel'
 }
-if ($panel -notmatch 'showStreamStats = checked' -or $panel -notmatch 'Nax5Session.play\(\)') {
+if ($panel -notmatch 'applyRcpDataSaverPreset\(\)' -or $panel -notmatch 'rcpLowLatency = checked' -or $panel -notmatch 'showStreamStats = checked' -or $panel -notmatch 'Nax5Session.play\(\)') {
     throw 'The diagnostics toggle and the original Play action must remain available'
 }
 
