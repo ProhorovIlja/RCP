@@ -112,13 +112,13 @@ jobs:
           pacman -S --needed --noconfirm mingw-w64-x86_64-mesa
           stage="$(mktemp -d)"
           queue=(opengl32.dll libgallium_wgl.dll)
-          for ((i=0; i<\${#queue[@]}; i++)); do
-            file="\${queue[i]}"
+          for ((i=0; i<${#queue[@]}; i++)); do
+            file="${queue[i]}"
             if [[ -f "/mingw64/bin/$file" && ! -f "$stage/$file" ]]; then
               cp "/mingw64/bin/$file" "$stage/$file"
               while IFS= read -r dll; do
                 [[ -z "$dll" ]] || queue+=("$dll")
-              done < <(objdump -p "$stage/$file" | awk '/DLL Name:/{print $3}')
+              done < <(objdump -p "$stage/$file" | awk '/DLL Name:/{sub(/\r$/, "", $3); print $3}')
             fi
           done
           test -s "$stage/opengl32.dll"
@@ -128,7 +128,7 @@ jobs:
       - name: Start packaged Windows launcher on software OpenGL
         shell: pwsh
         env:
-          RCP_CI_SOFTWARE_GL: \${{ steps.software-gl.outputs.path }}
+          RCP_CI_SOFTWARE_GL: ${{ steps.software-gl.outputs.path }}
         run: |
           ./scripts/release/verify-clean-windows-launch.ps1 `
             -BundleDir './artifacts/alpha-0.5/portable/NAX5' `
