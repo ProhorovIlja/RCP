@@ -1,7 +1,8 @@
 # RCP D3D11 lab (Windows x64)
 
 This separate executable plays a bundled 2-second synthetic 1080p60 HEVC clip
-locally. It does not connect to NAX5, read its settings or use a console
+locally. The clip contains 30 source scene updates per second expanded to a
+60 fps stream, to approximate a 30 fps game over a 60 fps transport. It does not connect to NAX5, read its settings or use a console
 session. The main launcher remains unchanged. Run from PowerShell in the
 extracted NAX5 folder so the lab finds the bundled media and DLLs.
 
@@ -26,6 +27,23 @@ The first frame may include shader setup. The p50/p95 samples describe the
 CPU-side copy/render/present call, including possible swapchain pacing. They
 are not GPU execution time, monitor display time, network delay, controller
 response, or a result comparable to a live Vulkan session.
+
+## Direct3D 12 decode check
+
+    .\rcp-d3d11-lab.exe --decoder-capabilities
+    .\rcp-d3d11-lab.exe --d3d12-decode
+
+The first command prints which H.264 and HEVC hardware configs are registered
+in the bundled FFmpeg. That does not mean your GPU and driver can use them.
+
+The second command uses the same clip, but opens the D3D12VA decoder and
+checks its GPU textures and per-frame completion fence. It uses no window,
+no readback, and no software fallback. The wall time includes demux, decode
+and serialized GPU wait. Fence-wait percentiles are CPU wait times, not GPU
+execution times. Do not compare those numbers to the D3D11 presentation
+timings above. This mode does not implement D3D12 presentation or change the
+live launcher. An optional local Matroska clip can be passed as the second
+argument.
 
 For CI and troubleshooting:
 

@@ -100,6 +100,7 @@ cmake -S "$ROOT" -B "$BUILD" -G Ninja \
 echo "building and checking the standalone D3D11 lab..."
 cmake --build "$BUILD" --config Release --target rcp-d3d11-lab
 "$BUILD/gui/rcp-d3d11-lab.exe" --warp-smoke
+"$BUILD/gui/rcp-d3d11-lab.exe" --decoder-capabilities
 
 echo "building chiaki..."
 cmake --build "$BUILD" --config Release --target chiaki
@@ -160,7 +161,7 @@ cp -f "$ROOT/docs/RCP-D3D11-LAB.md" "$USER_DIR/RCP-D3D11-LAB.md"
 cp -f "$BUILD/gui/rcp-d3d11-lab.exe" "$USER_DIR/rcp-d3d11-lab.exe"
 lab_demo_args=(
   -nostdin -hide_banner -loglevel error -y
-  -f lavfi -i testsrc2=size=1920x1080:rate=60 -frames:v 120
+  -f lavfi -i testsrc2=size=1920x1080:rate=30 -vf fps=60 -frames:v 120
   -an -pix_fmt yuv420p -c:v libx265 -preset ultrafast -tune zerolatency
   -x265-params pools=2:frame-threads=2:log-level=error
   -color_primaries bt709 -colorspace bt709 -color_trc bt709 -color_range tv

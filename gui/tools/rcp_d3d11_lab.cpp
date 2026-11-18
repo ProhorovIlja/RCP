@@ -2,6 +2,8 @@
 // Standalone offline probe. It is not linked into the NAX5 launcher.
 #include <windows.h>
 #include <d3d11.h>
+#include <d3d12.h>
+#include <libavutil/hwcontext_d3d12va.h>
 
 #define PL_LIBAV_IMPLEMENTATION 0
 #include <libplacebo/d3d11.h>
@@ -15,7 +17,9 @@ extern "C" {
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cerrno>
 #include <cstdint>
+#include <limits>
 #include <cstdio>
 #include <cstring>
 #include <thread>
@@ -23,6 +27,7 @@ extern "C" {
 
 namespace {
 using Clock = std::chrono::steady_clock;
+constexpr std::size_t maxLabFrames = 180;
 
 template <class T>
 struct Com {
@@ -241,37 +246,61 @@ bool keepWindow()
     return true;
 }
 
-AVPixelFormat selectD3D11(AVCodecContext *, const AVPixelFormat *formats)
+template <AVPixelFormat hardware_format>
+AVPixelFormat selectHardwareFormat(AVCodecContext *, const AVPixelFormat *formats)
 {
     for (; *formats != AV_PIX_FMT_NONE; ++formats) {
-        if (*formats == AV_PIX_FMT_D3D11)
+        if (*formats == hardware_format)
             return *formats;
     }
     return AV_PIX_FMT_NONE; // Software fallback would invalidate this test.
 }
 
+bool hasDeviceConfig(const AVCodec *codec, AVHWDeviceType device, AVPixelFormat format)
+{
+    if (!codec)
+        return false;
+    for (int i = 0; const auto *config = avcodec_get_hw_config(codec, i); ++i) {
+        if (config->device_type == device && config->pix_fmt == format &&
+            (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX))
+            return true;
+    }
+    return false;
+}
+
+int reportDecoderConfigs()
+{
+    for (const auto id : {AV_CODEC_ID_H264, AV_CODEC_ID_HEVC}) {
+        const auto *codec = avcodec_find_decoder(id);
+        std::printf("%s d3d11va_build=%s d3d12va_build=%s\n", avcodec_get_name(id),
+            hasDeviceConfig(codec, AV_HWDEVICE_TYPE_D3D11VA, AV_PIX_FMT_D3D11) ? "yes" : "no",
+            hasDeviceConfig(codec, AV_HWDEVICE_TYPE_D3D12VA, AV_PIX_FMT_D3D12) ? "yes" : "no");
+    }
+    return 0; // Presence in the FFmpeg build is not a GPU capability check.
+}
+
 int fail(const char *stage)
 {
-    std::fprintf(stderr, "RCP D3D11 lab failed: %s\n", stage);
+    std::fprintf(stderr, "RCP video lab failed: %s\n", stage);
     return 1;
 }
 
-int play(const char *path)
+template <AVPixelFormat hardware_format>
+const char *openClip(const char *path, Decode &d, int &track, AVHWDeviceType type)
 {
-    Decode d;
     if (!d.packet || !d.frame)
-        return fail("FFmpeg allocation");
+        return "FFmpeg allocation";
     AVDictionary *options = nullptr;
     av_dict_set(&options, "protocol_whitelist", "file", 0);
     const auto *mkv = av_find_input_format("matroska");
     const int opened = mkv ? avformat_open_input(&d.format, path, mkv, &options) : AVERROR_INVALIDDATA;
     av_dict_free(&options);
     if (opened < 0)
-        return fail("open local Matroska clip");
+        return "open local Matroska clip";
 
     // The bundled clip declares its codec in the container. Do not ask FFmpeg
     // to software-decode sample packets in avformat_find_stream_info().
-    int track = -1;
+    track = -1;
     for (unsigned i = 0; i < d.format->nb_streams; ++i) {
         const auto *p = d.format->streams[i]->codecpar;
         if (p->codec_type == AVMEDIA_TYPE_VIDEO && (p->codec_id == AV_CODEC_ID_H264 || p->codec_id == AV_CODEC_ID_HEVC)) {
@@ -280,38 +309,47 @@ int play(const char *path)
         }
     }
     if (track < 0)
-        return fail("clip has no H.264 or HEVC track");
+        return "clip has no H.264 or HEVC track";
     const auto *params = d.format->streams[track]->codecpar;
     if (params->width <= 0 || params->height <= 0 || params->width > 3840 || params->height > 2160)
-        return fail("clip resolution outside the lab's supported range");
+        return "clip resolution outside the lab's supported range";
     const auto *codec = avcodec_find_decoder(params->codec_id);
-    if (!codec)
-        return fail("FFmpeg decoder unavailable");
+    if (!hasDeviceConfig(codec, type, hardware_format))
+        return "the bundled FFmpeg has no requested hardware decoder configuration for this codec";
     d.codec = avcodec_alloc_context3(codec);
     if (!d.codec || avcodec_parameters_to_context(d.codec, params) < 0)
-        return fail("initialize codec parameters");
-    if (av_hwdevice_ctx_create(&d.hardware, AV_HWDEVICE_TYPE_D3D11VA, nullptr, nullptr, 0) < 0)
-        return fail("create D3D11VA hardware device");
-    const auto *hw = reinterpret_cast<const AVHWDeviceContext *>(d.hardware->data);
-    auto *device = static_cast<AVD3D11VADeviceContext *>(hw->hwctx);
+        return "initialize codec parameters";
+    if (av_hwdevice_ctx_create(&d.hardware, type, nullptr, nullptr, 0) < 0)
+        return "create the requested hardware device";
     d.codec->hw_device_ctx = av_buffer_ref(d.hardware);
-    d.codec->get_format = selectD3D11;
+    d.codec->get_format = selectHardwareFormat<hardware_format>;
     d.codec->thread_count = 1;
     if (!d.codec->hw_device_ctx || avcodec_open2(d.codec, codec, nullptr) < 0)
-        return fail("open hardware decoder");
+        return "open hardware decoder";
+    return nullptr;
+}
+
+int play(const char *path)
+{
+    Decode d;
+    int track;
+    if (const auto *error = openClip<AV_PIX_FMT_D3D11>(path, d, track, AV_HWDEVICE_TYPE_D3D11VA))
+        return fail(error);
+    const auto *hw = reinterpret_cast<const AVHWDeviceContext *>(d.hardware->data);
+    auto *device = static_cast<AVD3D11VADeviceContext *>(hw->hwctx);
 
     Render r;
     if (!r.init(device->device, false) || !openWindow(r))
         return fail("same-device libplacebo / DXGI setup");
     std::vector<double> submit;
-    submit.reserve(180);
+    submit.reserve(maxLabFrames);
     bool stopped = false;
     auto deadline = Clock::now();
     constexpr auto tick = std::chrono::microseconds(16667);
     auto drain = [&]() {
         int status;
         while ((status = avcodec_receive_frame(d.codec, d.frame)) == 0) {
-            if (!keepWindow() || submit.size() >= 180) {
+            if (!keepWindow() || submit.size() >= maxLabFrames) {
                 stopped = true;
                 av_frame_unref(d.frame);
                 return true;
@@ -349,6 +387,91 @@ int play(const char *path)
     std::printf("cpu_copy_render_present_call_ms: first=%.2f p50=%.2f p95=%.2f\n",
         first, submit[(submit.size() - 1) / 2], submit[p95]);
     std::puts("Offline fixed-60Hz feed. These timings include submit pacing, not display or input-to-photon delay.");
+    return 0;
+}
+
+struct FenceEvent {
+    HANDLE handle = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    ~FenceEvent() { if (handle) CloseHandle(handle); }
+};
+
+bool waitForDecode(const AVD3D12VAFrame &frame, HANDLE event)
+{
+    const auto &sync = frame.sync_ctx;
+    if (!frame.texture || !sync.fence || !sync.fence_value)
+        return false;
+    constexpr auto removed = (std::numeric_limits<std::uint64_t>::max)();
+    auto completed = sync.fence->GetCompletedValue();
+    if (completed == removed)
+        return false;
+    if (completed < sync.fence_value) {
+        if (FAILED(sync.fence->SetEventOnCompletion(sync.fence_value, event)) ||
+            WaitForSingleObject(event, 2000) != WAIT_OBJECT_0)
+            return false;
+        completed = sync.fence->GetCompletedValue();
+    }
+    return completed != removed && completed >= sync.fence_value;
+}
+
+int probeD3D12Decode(const char *path)
+{
+    Decode d;
+    int track;
+    if (const auto *error = openClip<AV_PIX_FMT_D3D12>(path, d, track, AV_HWDEVICE_TYPE_D3D12VA))
+        return fail(error);
+    FenceEvent event;
+    if (!event.handle)
+        return fail("create D3D12 completion event");
+
+    std::vector<double> waits;
+    waits.reserve(maxLabFrames);
+    AVPixelFormat layout = AV_PIX_FMT_NONE;
+    auto drain = [&]() {
+        int status = 0;
+        while (waits.size() < maxLabFrames && (status = avcodec_receive_frame(d.codec, d.frame)) == 0) {
+            if (d.frame->format != AV_PIX_FMT_D3D12 || !d.frame->hw_frames_ctx || !d.frame->data[0])
+                return false;
+            const auto *surface = reinterpret_cast<const AVD3D12VAFrame *>(d.frame->data[0]);
+            const auto *frames = reinterpret_cast<const AVHWFramesContext *>(d.frame->hw_frames_ctx->data);
+            const auto format = frames->sw_format;
+            if ((format != AV_PIX_FMT_NV12 && format != AV_PIX_FMT_P010) ||
+                (layout != AV_PIX_FMT_NONE && format != layout))
+                return false;
+            layout = format;
+
+            // FFmpeg n7.1 signals this fence when decode into the texture is
+            // complete. Wait only in the offline probe, never download pixels.
+            const auto start = Clock::now();
+            if (!waitForDecode(*surface, event.handle))
+                return false;
+            waits.push_back(std::chrono::duration<double, std::milli>(Clock::now() - start).count());
+            av_frame_unref(d.frame);
+        }
+        return waits.size() >= maxLabFrames || status == AVERROR(EAGAIN) || status == AVERROR_EOF;
+    };
+    const auto start = Clock::now();
+    int status = 0;
+    while (waits.size() < maxLabFrames && (status = av_read_frame(d.format, d.packet)) == 0) {
+        const bool ok = d.packet->stream_index != track ||
+            (avcodec_send_packet(d.codec, d.packet) >= 0 && drain());
+        av_packet_unref(d.packet);
+        if (!ok)
+            return fail("D3D12 hardware decode or frame completion");
+    }
+    if (waits.size() < maxLabFrames &&
+        (status != AVERROR_EOF || avcodec_send_packet(d.codec, nullptr) < 0 || !drain()))
+        return fail("D3D12 clip read or decoder flush");
+    if (waits.empty())
+        return fail("D3D12 produced no GPU frames");
+
+    const double elapsed = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+    std::sort(waits.begin(), waits.end());
+    const auto p95 = (waits.size() * 95 + 99) / 100 - 1;
+    std::printf("frames=%zu format=%s path=D3D12VA->GPU-surface cpu_readbacks=0 presentation=none\n",
+        waits.size(), layout == AV_PIX_FMT_P010 ? "P010" : "NV12");
+    std::printf("decode_and_sync_wall_ms=%.2f fence_wait_ms_p50=%.3f p95=%.3f\n",
+        elapsed, waits[(waits.size() - 1) / 2], waits[p95]);
+    std::puts("Offline serialized decode test. Not comparable to D3D11 presentation timings or a live session.");
     return 0;
 }
 
@@ -414,13 +537,21 @@ int warpSmoke()
 
 int main(int argc, char **argv)
 {
+    constexpr auto demo = "rcp-d3d11-demo.mkv";
     if (argc == 2 && std::strcmp(argv[1], "--warp-smoke") == 0)
         return warpSmoke();
+    if (argc == 2 && std::strcmp(argv[1], "--decoder-capabilities") == 0)
+        return reportDecoderConfigs();
+    if ((argc == 2 || argc == 3) && std::strcmp(argv[1], "--d3d12-decode") == 0)
+        return probeD3D12Decode(argc == 3 ? argv[2] : demo);
     if (argc == 2 && std::strcmp(argv[1], "--help") == 0) {
-        std::puts("rcp-d3d11-lab.exe [local H.264/HEVC Matroska clip] | --warp-smoke");
+        std::puts("rcp-d3d11-lab.exe [local H.264/HEVC Matroska clip]");
+        std::puts("  --d3d12-decode [local clip]  Hardware decode and fence checks; no window");
+        std::puts("  --decoder-capabilities      List hardware configs in the bundled FFmpeg");
+        std::puts("  --warp-smoke                Software D3D11 correctness test");
         return 0;
     }
     if (argc > 2)
         return fail("expected one local file or a lab option");
-    return play(argc == 2 ? argv[1] : "rcp-d3d11-demo.mkv");
+    return play(argc == 2 ? argv[1] : demo);
 }
