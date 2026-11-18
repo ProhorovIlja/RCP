@@ -2,12 +2,19 @@ name: Build RCP Windows x64
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - rcp-stream-quality
   pull_request:
     branches:
       - nax5-build16-base
 
 permissions:
   contents: read
+
+concurrency:
+  group: rcp-windows-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-release:
@@ -67,9 +74,6 @@ jobs:
             vulkan:p
             vulkan-headers:p
 
-      - name: Install python protobuf
-        run: pip install protobuf
-
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup -y --no-progress
@@ -99,7 +103,7 @@ jobs:
           $archive = "$output/RCP-Windows-x64-portable.zip"
           Copy-Item "$output/NAX5-windows-portable.zip" $archive
           $checksum = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$checksum  RCP-Windows-x64-portable.zip" | Set-Content "$output/SHA256SUMS.txt"
+          [IO.File]::WriteAllText("$output/SHA256SUMS.txt", "$checksum  RCP-Windows-x64-portable.zip`n", [Text.Encoding]::ASCII)
           "Portable ZIP (SHA-256): $checksum" | Add-Content $env:GITHUB_STEP_SUMMARY
 
       - name: Upload RCP Windows x64 portable build
@@ -111,3 +115,39 @@ jobs:
             artifacts/alpha-0.5/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
+
+  publish-preview:
+    needs: build-release
+    if: github.repository == 'ProhorovIlja/RCP' && github.ref == 'refs/heads/rcp-stream-quality' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified Windows ZIP
+        uses: actions/download-artifact@v4
+        with:
+          name: RCP-Windows-x64-portable
+          path: dist
+
+      - name: Verify checksum and publish a prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum --check SHA256SUMS.txt)
+          version="${GITHUB_SHA:0:12}"
+          tag="rcp-preview-$version"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/RCP-Windows-x64-portable.zip dist/SHA256SUMS.txt --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            flags=(
+              --repo "$GITHUB_REPOSITORY"
+              --target "$GITHUB_SHA"
+              --prerelease
+              --latest=false
+              --title "RCP Preview $version — Windows x64"
+              --notes "CI-built preview. Extract the ZIP and open NAX5/chiaki.exe. See RCP-QUICKSTART.md in the archive. Live NAX5 sign-in and playback are not verified by CI."
+            )
+            gh release create "$tag" dist/RCP-Windows-x64-portable.zip dist/SHA256SUMS.txt "${flags[@]}"
+          fi
