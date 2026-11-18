@@ -47,6 +47,7 @@ class QmlMainWindow : public QWindow
     Q_OBJECT
     Q_PROPERTY(bool hasVideo READ hasVideo NOTIFY hasVideoChanged)
     Q_PROPERTY(int droppedFrames READ droppedFrames NOTIFY droppedFramesChanged)
+    Q_PROPERTY(int localDroppedFrames READ localDroppedFrames NOTIFY localDroppedFramesChanged)
     Q_PROPERTY(bool keepVideo READ keepVideo WRITE setKeepVideo NOTIFY keepVideoChanged)
     Q_PROPERTY(VideoMode videoMode READ videoMode WRITE setVideoMode NOTIFY videoModeChanged)
     Q_PROPERTY(float ZoomFactor READ zoomFactor WRITE setZoomFactor NOTIFY zoomFactorChanged)
@@ -82,6 +83,7 @@ public:
 
     bool hasVideo() const;
     int droppedFrames() const;
+    int localDroppedFrames() const { return local_dropped_frames; }
     void increaseDroppedFrames();
 
     bool directStream() const;
@@ -134,6 +136,7 @@ public slots:
 signals:
     void hasVideoChanged();
     void droppedFramesChanged();
+    void localDroppedFramesChanged();
     void keepVideoChanged();
     void videoModeChanged();
     void zoomFactorChanged();
@@ -199,6 +202,8 @@ private:
     bool is_window_adjustable = false;
     bool is_stream_window_adjustable = false;
     QAtomicInteger<int> dropped_frames_current = 0;
+    int local_dropped_frames = 0;
+    QAtomicInteger<int> local_dropped_frames_current = 0;
     bool going_full = false;
     VideoMode video_mode = VideoMode::Normal;
     float zoom_factor = 0;

@@ -17,7 +17,7 @@ bool Nax5Runtime::operatorMode()
 
 QString Nax5Runtime::settingsApplicationName()
 {
-    return operatorMode() ? QStringLiteral("NAX5-Operator") : QStringLiteral("NAX5");
+    return operatorMode() ? QStringLiteral("RCP-Operator") : QStringLiteral("RCP");
 }
 
 QString Nax5Runtime::settingsOrganizationName()

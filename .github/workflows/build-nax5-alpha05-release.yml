@@ -2,9 +2,9 @@ name: Build RCP Windows x64
 
 on:
   workflow_dispatch:
-  push:
+  pull_request:
     branches:
-      - rcp-stream-quality
+      - nax5-build16-base
 
 permissions:
   contents: read
@@ -85,9 +85,7 @@ jobs:
           ./scripts/nax5/verify-qml-product-mode.ps1
           ./scripts/nax5/verify-no-host-persistence.ps1
           ./scripts/nax5/verify-settings-contract.ps1
-          if (Test-Path ./scripts/nax5/verify-rcp-stream-tools.ps1) {
-            ./scripts/nax5/verify-rcp-stream-tools.ps1
-          }
+          ./scripts/nax5/verify-rcp-stream-tools.ps1
 
       - name: Build portable launcher and run unit tests
         env:
@@ -102,7 +100,7 @@ jobs:
           Copy-Item "$output/NAX5-windows-portable.zip" $archive
           $checksum = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           "$checksum  RCP-Windows-x64-portable.zip" | Set-Content "$output/SHA256SUMS.txt"
-          "Portable ZIP (SHA-256): ``$checksum``" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "Portable ZIP (SHA-256): $checksum" | Add-Content $env:GITHUB_STEP_SUMMARY
 
       - name: Upload RCP Windows x64 portable build
         uses: actions/upload-artifact@v4

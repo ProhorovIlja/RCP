@@ -52,7 +52,7 @@ Rectangle {
 
         Label {
             Layout.fillWidth: true
-            text: qsTr("Версия launcher: %1").arg(Qt.application.version)
+            text: qsTr("RCP · клиент на базе NAX5 %1").arg(Qt.application.version)
             color: "#9e9e9e"
             font.pixelSize: 12
         }
@@ -88,6 +88,59 @@ Rectangle {
             }
 
             Item { Layout.fillWidth: true }
+        }
+
+        GroupBox {
+            Layout.fillWidth: true
+            title: qsTr("Настройки потока")
+            enabled: !Nax5Session.reserving && !Nax5Session.reserved
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 8
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Button {
+                        text: qsTr("Full HD")
+                        onClicked: Chiaki.settings.applyRcpRemotePreset(false)
+                    }
+                    Button {
+                        text: qsTr("Стабильность")
+                        onClicked: Chiaki.settings.applyRcpRemotePreset(true)
+                    }
+                    Item { Layout.fillWidth: true }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: "#b6c1cd"
+                    readonly property var resolutions: ["", "360p", "540p", "720p", "1080p"]
+                    readonly property var defaultBitrates: [0, 2, 6, 10, 15]
+                    readonly property var codecs: ["H.264", "H.265", "H.265 HDR"]
+                    readonly property int resolution: Chiaki.settings.resolutionRemotePS5
+                    readonly property int bitrate: Chiaki.settings.bitrateRemotePS5
+                    text: qsTr("Следующий сеанс · %1 · %2 FPS · %3 · %4 Мбит/с")
+                        .arg(resolutions[resolution] || "—")
+                        .arg(Chiaki.settings.fpsRemotePS5)
+                        .arg(codecs[Chiaki.settings.codecRemotePS5] || "—")
+                        .arg(bitrate > 0 ? bitrate / 1000 : (defaultBitrates[resolution] || "—"))
+                }
+
+                CheckBox {
+                    text: qsTr("Показывать статистику во время игры")
+                    checked: Chiaki.settings.showStreamStats
+                    onToggled: Chiaki.settings.showStreamStats = checked
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: "#b6c1cd"
+                    text: qsTr("DualSense лучше подключить по USB. Звук и аппаратный декодер можно выбрать в настройках.")
+                }
+            }
         }
 
         Rectangle {

@@ -485,6 +485,7 @@ int QmlMainWindow::droppedFrames() const
 void QmlMainWindow::increaseDroppedFrames()
 {
     dropped_frames_current.fetchAndAddRelaxed(1);
+    local_dropped_frames_current.fetchAndAddRelaxed(1);
 }
 
 bool QmlMainWindow::keepVideo() const
@@ -1829,6 +1830,11 @@ renderer_backend_ready:
         if (dropped_frames != dropped_frames_next) {
             dropped_frames = dropped_frames_next;
             emit droppedFramesChanged();
+        }
+        const int local = local_dropped_frames_current.fetchAndStoreRelaxed(0);
+        if (local_dropped_frames != local) {
+            local_dropped_frames = local;
+            emit localDroppedFramesChanged();
         }
     });
 

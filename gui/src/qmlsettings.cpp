@@ -484,6 +484,16 @@ void QmlSettings::setCodecRemotePS5(int codec)
     emit codecRemotePS5Changed();
 }
 
+void QmlSettings::applyRcpRemotePreset(bool stability)
+{
+    // Keep user-selected hardware decoder, renderer, audio, and all local/PS4 profiles.
+    setResolutionRemotePS5(stability ? CHIAKI_VIDEO_RESOLUTION_PRESET_720p
+                                     : CHIAKI_VIDEO_RESOLUTION_PRESET_1080p);
+    setFpsRemotePS5(CHIAKI_VIDEO_FPS_PRESET_60);
+    setCodecRemotePS5(CHIAKI_CODEC_H265);
+    setBitrateRemotePS5(stability ? 10000 : 15000);
+}
+
 int QmlSettings::displayTargetContrast() const
 {
     return settings->GetDisplayTargetContrast();

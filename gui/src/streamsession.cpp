@@ -233,6 +233,7 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		pi_decoder = CHIAKI_NEW(ChiakiPiDecoder);
 		if(chiaki_pi_decoder_init(pi_decoder, log.GetChiakiLog()) != CHIAKI_ERR_SUCCESS)
 			throw ChiakiException("Failed to initialize Raspberry Pi Decoder");
+		decoder_backend = QStringLiteral("MMAL");
 	}
 	else
 	{
@@ -254,6 +255,8 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		}
 		chiaki_log_sniffer_fini(&sniffer);
 		ffmpeg_decoder->log = GetChiakiLog();
+		decoder_backend = connect_info.hw_decoder.isEmpty()
+			? QStringLiteral("CPU") : connect_info.hw_decoder.toUpper();
 #if CHIAKI_LIB_ENABLE_PI_DECODER
 	}
 #endif

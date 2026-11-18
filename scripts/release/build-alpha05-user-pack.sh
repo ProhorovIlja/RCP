@@ -144,6 +144,9 @@ rm -f "$USER_DIR"/ALPHA0*.md
 
 cp -f "$ROOT/docs/acceptance/ALPHA05-USER-TEST.md" "$USER_DIR/ALPHA05-USER-TEST.md"
 cp -f "$ROOT/scripts/release/README-USER-alpha05.txt" "$USER_DIR/README-USER.txt"
+cp -f "$ROOT/docs/RCP-QUICKSTART.md" "$USER_DIR/RCP-QUICKSTART.md"
+cp -f "$ROOT/COPYING" "$ROOT/THIRD-PARTY-NOTICES.md" "$USER_DIR/"
+cp -a "$ROOT/LICENSES" "$USER_DIR/"
 
 {
   echo "NAX5 Alpha 0.5 portable Windows x64"

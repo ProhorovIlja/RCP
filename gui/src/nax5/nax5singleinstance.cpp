@@ -26,7 +26,7 @@ void raiseWindows()
 QString nax5SingleInstanceName()
 {
     const QByteArray user = qgetenv("USERNAME") + '|' + qgetenv("USERDOMAIN");
-    return QStringLiteral("NAX5-client-") + QString::fromLatin1(
+    return QStringLiteral("RCP-client-") + QString::fromLatin1(
         QCryptographicHash::hash(user, QCryptographicHash::Sha256).toHex().left(16));
 }
 

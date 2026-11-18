@@ -18,7 +18,7 @@ ToolBar {
         spacing: 16
 
         Label {
-            text: "NAX5"
+            text: "RCP"
             font.bold: true
         }
 

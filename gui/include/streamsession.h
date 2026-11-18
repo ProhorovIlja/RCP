@@ -160,6 +160,7 @@ class StreamSession : public QObject
 	Q_PROPERTY(bool muted READ GetMuted WRITE SetMuted NOTIFY MutedChanged)
 	Q_PROPERTY(bool cantDisplay READ GetCantDisplay NOTIFY CantDisplayChanged)
 	Q_PROPERTY(int framesLost READ GetFramesLost NOTIFY FramesLostChanged)
+	Q_PROPERTY(QString decoderBackend READ GetDecoderBackend CONSTANT)
 
 	private:
 		SessionLog log;
@@ -249,6 +250,7 @@ class StreamSession : public QObject
 		bool session_started;
 
 		ChiakiFfmpegDecoder *ffmpeg_decoder;
+		QString decoder_backend;
 		void TriggerFfmpegFrameAvailable();
 #if CHIAKI_LIB_ENABLE_PI_DECODER
 		ChiakiPiDecoder *pi_decoder;
@@ -356,6 +358,7 @@ class StreamSession : public QObject
 		quint32 GetMtuOut() const { return session.mtu_out; }
 		quint64 DecoderFlushGeneration() const { return decoder_flush_generation.loadRelaxed(); }
 		int GetFramesLost()		{ return frames_lost; }
+		QString GetDecoderBackend() const { return decoder_backend; }
 		bool GetMuted()	{ return muted; }
 		void SetMuted(bool enable)	{ if (enable != muted) ToggleMute(); }
 		void SetAudioVolume(int volume) { audio_volume = volume; }
