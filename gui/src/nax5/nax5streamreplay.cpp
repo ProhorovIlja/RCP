@@ -363,15 +363,6 @@ void nax5StreamReplayApply(StreamSessionConnectInfo &info)
 void nax5StreamReplayStart(StreamSession *session)
 {
     stop_requested = false;
-    QObject::connect(session, &StreamSession::FfmpegFrameAvailable, session,
-        [] {
-            ++counters.decoded_frames;
-            const qint64 now = std::chrono::duration_cast<std::chrono::microseconds>(
-                Clock::now().time_since_epoch()).count();
-            const auto previous = counters.last_ready_us.exchange(now, std::memory_order_relaxed);
-            if (previous)
-                updateMax(counters.frame_ready_gap_max_us, now - previous);
-        }, Qt::DirectConnection);
     feeder = QThread::create([session] { Nax5StreamReplay::run(session); });
     feeder->start();
 }
@@ -393,4 +384,17 @@ void nax5StreamReplayVideoSubmitted()
     static const bool active = nax5StreamReplayActive();
     if (active)
         ++counters.video_submitted;
+}
+
+void nax5StreamReplayFrameDecoded()
+{
+    static const bool active = nax5StreamReplayActive();
+    if (!active)
+        return;
+    ++counters.decoded_frames;
+    const qint64 now = std::chrono::duration_cast<std::chrono::microseconds>(
+        Clock::now().time_since_epoch()).count();
+    const auto previous = counters.last_ready_us.exchange(now, std::memory_order_relaxed);
+    if (previous)
+        updateMax(counters.frame_ready_gap_max_us, now - previous);
 }

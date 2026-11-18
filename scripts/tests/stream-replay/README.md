@@ -45,7 +45,7 @@ The impaired trace uses seed 2406, independent 3% video-access-unit and
 2% Opus loss decisions, and holds the last 80 ms of each two-second
 interval. It releases only already-due media and input. A/B reports
 require identical source slot counts, drops and holds. They include
-decoded-frame notifications, successful software swapchain submissions,
+actual decoded frames pulled from FFmpeg, software swapchain submissions,
 the longest frame-ready and GUI-dispatch gaps and pull-buffer counters.
 
 The test uses software decoding, CI-only OpenGL and SDL dummy output.
@@ -60,7 +60,8 @@ queued underrun count does not mean zero underruns.
 ## What a scenario checks
 
 - the process exits cleanly (no crash code, no hang, no crash dump);
-- decoded frames >= 95% of accepted access units (50% with loss or corruption);
+- decoded frames >= 95% of accepted access units (50% for the software CI
+  matrix or with loss or corruption);
 - the audio device opens; with the microphone on, mic frames flow unless the
   machine has no capture device (reported as `no-device`);
 - a decoder that is unavailable on the machine is reported as a fallback, not

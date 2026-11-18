@@ -1040,6 +1040,9 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
         ChiakiFfmpegFrame frame = chiaki_ffmpeg_decoder_pull_frame(decoder, &frames_lost);
         if (!frame.frame)
             return;
+#ifdef NAX5_STREAM_REPLAY
+        nax5StreamReplayFrameDecoded();
+#endif
         if (frame.recovered)
             pending_recovered_frame.storeRelaxed(1);
 

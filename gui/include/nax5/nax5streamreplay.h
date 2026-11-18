@@ -20,3 +20,4 @@ void nax5StreamReplayStop(StreamSession *session);
 // Called instead of sending an encoded microphone frame to the console.
 void nax5StreamReplayMicFrame();
 void nax5StreamReplayVideoSubmitted();
+void nax5StreamReplayFrameDecoded();

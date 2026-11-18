@@ -61,7 +61,7 @@ $MediaRoot = (Resolve-Path -LiteralPath $MediaRoot).Path
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $OutDir = (Resolve-Path -LiteralPath $OutDir).Path
 $chiakiDir = Split-Path -Parent (Resolve-Path $ChiakiExe)
-$profileDir = Join-Path $env:APPDATA 'NAX5\NAX5-Operator\log'
+$profileDir = Join-Path $env:APPDATA 'NAX5\RCP-Operator\log'
 $dumpDir = Join-Path $profileDir 'crash-dumps'
 $results = @()
 
@@ -136,7 +136,7 @@ foreach ($sc in $matrix) {
         else {
             $expected = [math]::Max(1, $r.video_sent - $r.video_rejected_by_decoder)
             $ratio = $r.decoded_frames / $expected
-            $floor = if ($sc.loss -or $sc.corrupt) { 0.5 } else { 0.95 }
+            $floor = if ($sc.input -or $sc.loss -or $sc.corrupt) { 0.5 } else { 0.95 }
             if ($ratio -lt $floor) { $problems += ('decoded {0:P0} of sent' -f $ratio) }
             if (($r.audio_sent -gt 0 -or $sc.header_only) -and -not $r.audio_output.opened) { $problems += 'audio device not opened' }
             if ($sc.mic -eq 1 -and -not $micFailed -and $r.mic_frames -lt 100) { $problems += "mic frames $($r.mic_frames)" }
