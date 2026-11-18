@@ -102,7 +102,38 @@ jobs:
       - name: Build portable launcher and run unit tests
         env:
           ISCC: /c/Program Files (x86)/Inno Setup 6/ISCC.exe
+          # The separate smoke test below uses a CI-only software GL stack.
+          NAX5_SKIP_LAUNCH_SMOKE: "1"
         run: bash scripts/release/build-alpha05-user-pack.sh
+
+      - name: Stage CI-only software graphics
+        id: software-gl
+        run: |
+          pacman -S --needed --noconfirm mingw-w64-x86_64-mesa
+          stage="$(mktemp -d)"
+          queue=(opengl32.dll libgallium_wgl.dll)
+          for ((i=0; i<\${#queue[@]}; i++)); do
+            file="\${queue[i]}"
+            if [[ -f "/mingw64/bin/$file" && ! -f "$stage/$file" ]]; then
+              cp "/mingw64/bin/$file" "$stage/$file"
+              while IFS= read -r dll; do
+                [[ -z "$dll" ]] || queue+=("$dll")
+              done < <(objdump -p "$stage/$file" | awk '/DLL Name:/{print $3}')
+            fi
+          done
+          test -s "$stage/opengl32.dll"
+          test -s "$stage/libgallium_wgl.dll"
+          printf 'path=%s\n' "$(cygpath -w "$stage")" >> "$GITHUB_OUTPUT"
+
+      - name: Start packaged Windows launcher on software OpenGL
+        shell: pwsh
+        env:
+          RCP_CI_SOFTWARE_GL: \${{ steps.software-gl.outputs.path }}
+        run: |
+          ./scripts/release/verify-clean-windows-launch.ps1 `
+            -BundleDir './artifacts/alpha-0.5/portable/NAX5' `
+            -InstallerExe './artifacts/alpha-0.5/NAX5-windows-installer.exe' `
+            -SoftwareOpenGLDir $env:RCP_CI_SOFTWARE_GL
 
       - name: Name fork build and generate checksum
         shell: pwsh
