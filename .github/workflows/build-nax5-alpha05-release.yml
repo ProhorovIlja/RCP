@@ -135,6 +135,15 @@ jobs:
             -InstallerExe './artifacts/alpha-0.5/NAX5-windows-installer.exe' `
             -SoftwareOpenGLDir $env:RCP_CI_SOFTWARE_GL
 
+      - name: Preserve compiled ZIP if a CI check fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RCP-Windows-x64-not-launch-verified
+          path: artifacts/alpha-0.5/NAX5-windows-portable.zip
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Name fork build and generate checksum
         shell: pwsh
         run: |
