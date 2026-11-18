@@ -45,8 +45,6 @@ jobs:
             cmake:p
             curl:p
             fast_float:p
-            fftw:p
-            hidapi:p
             json-c:p
             libevent:p
             lcms2:p
