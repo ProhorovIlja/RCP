@@ -105,7 +105,7 @@ cmake --build "$BUILD" --config Release --target rcp-d3d11-lab
 echo "building chiaki..."
 cmake --build "$BUILD" --config Release --target chiaki
 echo "building unit tests..."
-cmake --build "$BUILD" --config Release --target nax5-auth-unit nax5-session-unit nax5-connection-unit nax5-telemetry-unit rcp-input-unit rcp-audio-unit
+cmake --build "$BUILD" --config Release --target nax5-auth-unit nax5-session-unit nax5-connection-unit nax5-telemetry-unit rcp-input-unit rcp-audio-unit rcp-feedback-replay
 
 "$BUILD/gui/nax5-auth-unit.exe"
 "$BUILD/gui/nax5-session-unit.exe"
@@ -113,6 +113,7 @@ cmake --build "$BUILD" --config Release --target nax5-auth-unit nax5-session-uni
 "$BUILD/gui/nax5-telemetry-unit.exe"
 "$BUILD/gui/rcp-input-unit.exe"
 "$BUILD/gui/rcp-audio-unit.exe"
+ctest --test-dir "$BUILD" -C Release -R '^rcp-feedback-replay$' --no-tests=error -V
 echo "unit tests passed"
 
 test -f "$EXE"
@@ -186,7 +187,7 @@ cp -a "$ROOT/LICENSES" "$USER_DIR/"
   echo "launch: NAX5.exe (Inno Setup installer) -> chiaki.exe"
   echo "launcher: ${LAUNCHER_EXE##*/}"
   echo "installer: ${INSTALLER##*/}"
-  echo "unit tests: nax5-auth-unit, nax5-session-unit, nax5-connection-unit, nax5-telemetry-unit, rcp-input-unit, rcp-audio-unit passed"
+  echo "unit tests: nax5-auth-unit, nax5-session-unit, nax5-connection-unit, nax5-telemetry-unit, rcp-input-unit, rcp-audio-unit, rcp-feedback-replay passed"
   echo "clean launch smoke skipped: ${NAX5_SKIP_LAUNCH_SMOKE:-0}"
   echo "features: login, reserve, auto Remote Play, process log, client-reports, session hardening, first-frame replay tracking"
 } > "$USER_DIR/BUILD-INFO.txt"

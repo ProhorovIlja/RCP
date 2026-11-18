@@ -21,3 +21,21 @@ CPU/GPU load, render drops and audio queue resets. Keep recorded-video timing
 separate from controller-to-screen timing on the actual PS5. Check alt-tab,
 minimize/resume, controller reconnect and pause recovery before enabling a new
 mode by default.
+
+## Controller feedback replay
+
+`rcp-feedback-replay` runs the real feedback sender and payload formatter
+with a fake clock and a captured send boundary. Windows packaging runs it
+automatically. The assertions cover a dropped packet recovered by later
+button history, stale and duplicate delivery in the reference receiver, and
+16-bit sequence rollover. The receiver is a test model, not PS5 firmware.
+It does not cover Takion headers, encryption, the real UDP path or OS
+thread scheduling.
+
+The separate idle diagnostic drops the final Cross release and advances
+the sender by one second without additional input. The current sender
+does not resend that history when idle, even though it still sends
+periodic analog/motion-state packets. The diagnostic reports the outcome
+without requiring the current limitation to stay in place. This baseline
+lets a future protocol backport demonstrate that it fixes the failure
+mode before testing on a console.
