@@ -253,6 +253,12 @@ class Settings : public QObject
         void SetRcpLowLatency(bool value) { settings.setValue("rcp/low_latency", value); }
         int GetRcpMouseSensitivity() const { return settings.value("rcp/mouse_sensitivity", 100).toInt(); }
         void SetRcpMouseSensitivity(int value) { settings.setValue("rcp/mouse_sensitivity", value); }
+        int GetRcpMouseVertical() const { return settings.value("rcp/mouse_vertical", 100).toInt(); }
+        void SetRcpMouseVertical(int value) { settings.setValue("rcp/mouse_vertical", value); }
+        int GetRcpMouseMinOutput() const { return settings.value("rcp/mouse_min_output", 0).toInt(); }
+        void SetRcpMouseMinOutput(int value) { settings.setValue("rcp/mouse_min_output", value); }
+        int GetRcpMouseRecenterMs() const { return settings.value("rcp/mouse_recenter_ms", 8).toInt(); }
+        void SetRcpMouseRecenterMs(int value) { settings.setValue("rcp/mouse_recenter_ms", value); }
         bool GetRcpMouseInvertY() const { return settings.value("rcp/mouse_invert_y", false).toBool(); }
         void SetRcpMouseInvertY(bool invert) { settings.setValue("rcp/mouse_invert_y", invert); }
 

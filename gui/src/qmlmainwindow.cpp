@@ -2782,29 +2782,43 @@ bool QmlMainWindow::startRcpMouseCapture()
         return false;
     }
 
-    rcp_mouse_sensitivity = settings->GetRcpMouseSensitivity();
-    rcp_mouse_invert_y = settings->GetRcpMouseInvertY();
+    rcp_mouse_response = {settings->GetRcpMouseSensitivity(), settings->GetRcpMouseVertical(),
+                          settings->GetRcpMouseMinOutput(), settings->GetRcpMouseRecenterMs(),
+                          settings->GetRcpMouseInvertY()};
     rcp_mouse_look.reset();
     session->ResetRcpInput();
     rcp_mouse_clock.start();
     if (!rcp_mouse_timer) {
         rcp_mouse_timer = new QTimer(this);
         rcp_mouse_timer->setTimerType(Qt::PreciseTimer);
-        rcp_mouse_timer->setInterval(4);
+        rcp_mouse_timer->setSingleShot(true);
         connect(rcp_mouse_timer, &QTimer::timeout, this, [this]() {
             if (!rcp_mouse_captured || !session)
                 return;
             if (const auto stick = rcp_mouse_look.sample(rcp_mouse_clock.nsecsElapsed() / 1000,
-                    rcp_mouse_sensitivity, rcp_mouse_invert_y))
+                    rcp_mouse_response))
                 session->SetRcpMouseLook(stick->x, stick->y);
+            scheduleRcpMouseSample();
         });
     }
     rcp_mouse_captured = true;
     rcp_mouse_grabbed = setMouseGrabEnabled(true);
     setCursor(Qt::BlankCursor);
-    rcp_mouse_timer->start();
     emit rcpMouseCapturedChanged();
     return true;
+}
+
+void QmlMainWindow::scheduleRcpMouseSample()
+{
+    if (const auto deadline = rcp_mouse_look.nextDeadline(rcp_mouse_response)) {
+        const auto left_us = *deadline - rcp_mouse_clock.nsecsElapsed() / 1000;
+        const int wait_ms = static_cast<int>((std::max)(std::int64_t{0}, static_cast<std::int64_t>((left_us + 999) / 1000)));
+        // Do not restart an earlier timer on each incoming mouse packet.
+        if (!rcp_mouse_timer->isActive() || rcp_mouse_timer->remainingTime() > wait_ms)
+            rcp_mouse_timer->start(wait_ms);
+    } else if (rcp_mouse_timer->isActive()) {
+        rcp_mouse_timer->stop();
+    }
 }
 
 bool QmlMainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
@@ -2820,10 +2834,11 @@ bool QmlMainWindow::nativeEvent(const QByteArray &eventType, void *message, qint
             if (read != static_cast<UINT>(-1) && read >= sizeof(RAWINPUTHEADER) + sizeof(RAWMOUSE) &&
                 raw.header.dwType == RIM_TYPEMOUSE) {
                 const auto &mouse = raw.data.mouse;
-                if (!(mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
+                if (!(mouse.usFlags & MOUSE_MOVE_ABSOLUTE) && (mouse.lLastX || mouse.lLastY)) {
                     if (const auto stick = rcp_mouse_look.move(mouse.lLastX, mouse.lLastY,
-                        rcp_mouse_clock.nsecsElapsed() / 1000, rcp_mouse_sensitivity, rcp_mouse_invert_y))
+                        rcp_mouse_clock.nsecsElapsed() / 1000, rcp_mouse_response))
                         session->SetRcpMouseLook(stick->x, stick->y);
+                    scheduleRcpMouseSample();
                 }
                 const USHORT buttons = mouse.usButtonFlags;
                 if (buttons & RI_MOUSE_LEFT_BUTTON_DOWN) session->SetRcpMouseButton(Qt::LeftButton, true);

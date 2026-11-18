@@ -494,6 +494,14 @@ void QmlSettings::applyRcpRemotePreset(bool stability)
     setBitrateRemotePS5(stability ? 10000 : 15000);
 }
 
+void QmlSettings::applyRcpFullHdLitePreset()
+{
+    setResolutionRemotePS5(CHIAKI_VIDEO_RESOLUTION_PRESET_1080p);
+    setFpsRemotePS5(CHIAKI_VIDEO_FPS_PRESET_60);
+    setCodecRemotePS5(CHIAKI_CODEC_H265);
+    setBitrateRemotePS5(10000);
+}
+
 void QmlSettings::applyRcpDataSaverPreset()
 {
     setResolutionRemotePS5(CHIAKI_VIDEO_RESOLUTION_PRESET_540p);
@@ -519,6 +527,36 @@ void QmlSettings::setRcpMouseSensitivity(int value)
         return;
     settings->SetRcpMouseSensitivity(value);
     emit rcpMouseSensitivityChanged();
+}
+
+int QmlSettings::rcpMouseVertical() const { return qBound(25, settings->GetRcpMouseVertical(), 200); }
+void QmlSettings::setRcpMouseVertical(int value)
+{
+    value = qBound(25, value, 200);
+    if (rcpMouseVertical() == value)
+        return;
+    settings->SetRcpMouseVertical(value);
+    emit rcpMouseVerticalChanged();
+}
+
+int QmlSettings::rcpMouseMinOutput() const { return qBound(0, settings->GetRcpMouseMinOutput(), 30); }
+void QmlSettings::setRcpMouseMinOutput(int value)
+{
+    value = qBound(0, value, 30);
+    if (rcpMouseMinOutput() == value)
+        return;
+    settings->SetRcpMouseMinOutput(value);
+    emit rcpMouseMinOutputChanged();
+}
+
+int QmlSettings::rcpMouseRecenterMs() const { return qBound(4, settings->GetRcpMouseRecenterMs(), 24); }
+void QmlSettings::setRcpMouseRecenterMs(int value)
+{
+    value = qBound(4, value, 24);
+    if (rcpMouseRecenterMs() == value)
+        return;
+    settings->SetRcpMouseRecenterMs(value);
+    emit rcpMouseRecenterMsChanged();
 }
 
 bool QmlSettings::rcpMouseInvertY() const { return settings->GetRcpMouseInvertY(); }
@@ -1878,6 +1916,9 @@ void QmlSettings::refreshAllKeys()
     emit resolutionRemotePS5Changed();
     emit rcpLowLatencyChanged();
     emit rcpMouseSensitivityChanged();
+    emit rcpMouseVerticalChanged();
+    emit rcpMouseMinOutputChanged();
+    emit rcpMouseRecenterMsChanged();
     emit rcpMouseInvertYChanged();
     emit disconnectActionChanged();
     emit suspendActionChanged();

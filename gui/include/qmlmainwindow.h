@@ -185,6 +185,7 @@ private:
 #if defined(Q_OS_WIN)
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     bool startRcpMouseCapture();
+    void scheduleRcpMouseSample();
 #endif
     void stopRcpMouseCapture(bool reset_input = true);
     QObject *focusObject() const override;
@@ -212,8 +213,7 @@ private:
     bool rcp_mouse_captured = false;
 #if defined(Q_OS_WIN)
     bool rcp_mouse_grabbed = false;
-    int rcp_mouse_sensitivity = 100;
-    bool rcp_mouse_invert_y = false;
+    rcp::MouseResponse rcp_mouse_response;
     rcp::MouseLook rcp_mouse_look;
     QElapsedTimer rcp_mouse_clock;
     QTimer *rcp_mouse_timer = nullptr;

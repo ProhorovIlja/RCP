@@ -33,6 +33,9 @@ class QmlSettings : public QObject
     Q_PROPERTY(bool showStreamStats READ showStreamStats WRITE setShowStreamStats NOTIFY showStreamStatsChanged)
     Q_PROPERTY(bool rcpLowLatency READ rcpLowLatency WRITE setRcpLowLatency NOTIFY rcpLowLatencyChanged)
     Q_PROPERTY(int rcpMouseSensitivity READ rcpMouseSensitivity WRITE setRcpMouseSensitivity NOTIFY rcpMouseSensitivityChanged)
+    Q_PROPERTY(int rcpMouseVertical READ rcpMouseVertical WRITE setRcpMouseVertical NOTIFY rcpMouseVerticalChanged)
+    Q_PROPERTY(int rcpMouseMinOutput READ rcpMouseMinOutput WRITE setRcpMouseMinOutput NOTIFY rcpMouseMinOutputChanged)
+    Q_PROPERTY(int rcpMouseRecenterMs READ rcpMouseRecenterMs WRITE setRcpMouseRecenterMs NOTIFY rcpMouseRecenterMsChanged)
     Q_PROPERTY(bool rcpMouseInvertY READ rcpMouseInvertY WRITE setRcpMouseInvertY NOTIFY rcpMouseInvertYChanged)
     Q_PROPERTY(bool streamerMode READ streamerMode WRITE setStreamerMode NOTIFY streamerModeChanged)
     Q_PROPERTY(float hapticOverride READ hapticOverride WRITE setHapticOverride NOTIFY hapticOverrideChanged)
@@ -179,6 +182,12 @@ public:
     void setRcpLowLatency(bool value);
     int rcpMouseSensitivity() const;
     void setRcpMouseSensitivity(int value);
+    int rcpMouseVertical() const;
+    void setRcpMouseVertical(int value);
+    int rcpMouseMinOutput() const;
+    void setRcpMouseMinOutput(int value);
+    int rcpMouseRecenterMs() const;
+    void setRcpMouseRecenterMs(int value);
     bool rcpMouseInvertY() const;
     void setRcpMouseInvertY(bool invert);
 
@@ -591,6 +600,7 @@ public:
 
     Q_INVOKABLE void deleteRegisteredHost(int index);
     Q_INVOKABLE void applyRcpRemotePreset(bool stability);
+    Q_INVOKABLE void applyRcpFullHdLitePreset();
     Q_INVOKABLE void applyRcpDataSaverPreset();
     Q_INVOKABLE void refreshAudioDevices();
     Q_INVOKABLE QString changeControllerKey(int button, int key);
@@ -636,6 +646,9 @@ signals:
     void showStreamStatsChanged();
     void rcpLowLatencyChanged();
     void rcpMouseSensitivityChanged();
+    void rcpMouseVerticalChanged();
+    void rcpMouseMinOutputChanged();
+    void rcpMouseRecenterMsChanged();
     void rcpMouseInvertYChanged();
     void streamerModeChanged();
     void fpsLocalPS4Changed();

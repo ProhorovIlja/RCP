@@ -23,11 +23,17 @@ foreach ($rule in @('CHIAKI_VIDEO_RESOLUTION_PRESET_540p', 'CHIAKI_VIDEO_FPS_PRE
 }
 if ([regex]::Matches($saver, '\bset\w+\(').Count -ne 4) { throw 'Data saver must leave unrelated settings alone' }
 
+$lite = [regex]::Match($settings, '(?s)void QmlSettings::applyRcpFullHdLitePreset\(\)\s*\{(.*?)\}').Groups[1].Value
+foreach ($rule in @('CHIAKI_VIDEO_RESOLUTION_PRESET_1080p', 'CHIAKI_VIDEO_FPS_PRESET_60', 'CHIAKI_CODEC_H265', 'setBitrateRemotePS5\(10000\)')) {
+    if ($lite -notmatch $rule) { throw "Unexpected Full HD Lite preset: $rule" }
+}
+if ([regex]::Matches($lite, '\bset\w+\(').Count -ne 4) { throw 'Full HD Lite must leave unrelated settings alone' }
+
 $panel = Read-Source 'gui/src/qml/Nax5PlayPanel.qml'
 if ($panel -notmatch 'applyRcpRemotePreset\(false\)' -or $panel -notmatch 'applyRcpRemotePreset\(true\)') {
     throw 'Both presets must be wired to the play panel'
 }
-if ($panel -notmatch 'applyRcpDataSaverPreset\(\)' -or $panel -notmatch 'rcpLowLatency = checked' -or $panel -notmatch 'showStreamStats = checked' -or $panel -notmatch 'Nax5Session.play\(\)') {
+if ($panel -notmatch 'applyRcpFullHdLitePreset\(\)' -or $panel -notmatch 'applyRcpDataSaverPreset\(\)' -or $panel -notmatch 'rcpLowLatency = checked' -or $panel -notmatch 'showStreamStats = checked' -or $panel -notmatch 'Nax5Session.play\(\)') {
     throw 'The diagnostics toggle and the original Play action must remain available'
 }
 
