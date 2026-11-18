@@ -18,6 +18,12 @@ static_assert(audioQueueChunk(19200, 19189, 1920, 2000, 4) == 8);
 static_assert(audioQueueChunk(19200, 0, 1920, 124, 4) == 124);
 static_assert(audioQueueChunk(19200, 0, 0, 124, 4) == 0);
 static_assert(wholePcmFrames(191, 6) == 186);
+static_assert(rcp::dualSenseHapticLimitBytes == 23040);
+static_assert(!rcp::planDualSenseHaptics(19200, 3840).clear_backlog);
+static_assert(rcp::planDualSenseHaptics(19208, 3840).clear_backlog);
+static_assert(rcp::planDualSenseHaptics(0, 23425).offset == 384);
+static_assert(rcp::planDualSenseHaptics(0, 23425).bytes == 23040);
+static_assert(!rcp::planDualSenseHaptics(24000, 7).clear_backlog);
 
 int main()
 {

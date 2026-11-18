@@ -24,4 +24,20 @@ constexpr std::size_t audioQueueChunk(std::size_t target, std::size_t queued,
         return 0;
     return wholePcmFrames((std::min)({target - queued, pending, contiguous}), frame_bytes);
 }
+
+// The DualSense haptic output uses 48 kHz, four signed 16-bit channels.
+// Bound only the client's software queue, not driver playback latency.
+constexpr std::size_t dualSenseHapticFrameBytes = 8;
+constexpr std::size_t dualSenseHapticLimitBytes = 48000 * dualSenseHapticFrameBytes * 60 / 1000;
+struct HapticQueuePlan {
+    std::size_t offset;
+    std::size_t bytes;
+    bool clear_backlog;
+};
+constexpr HapticQueuePlan planDualSenseHaptics(std::size_t queued, std::size_t incoming)
+{
+    const auto whole = wholePcmFrames(incoming, dualSenseHapticFrameBytes);
+    const auto bytes = (std::min)(whole, dualSenseHapticLimitBytes);
+    return {whole - bytes, bytes, bytes != 0 && queued > dualSenseHapticLimitBytes - bytes};
+}
 }

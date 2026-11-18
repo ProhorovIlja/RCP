@@ -170,6 +170,7 @@ private:
     pl_gpu placeboGpu() const;
     void update();
     void scheduleUpdate();
+    void scheduleDecodedFrameUpdate();
     void createSwapchain();
     void destroySwapchain();
     void resizeSwapchain();
@@ -317,6 +318,7 @@ private:
     QString pending_renderer_fallback_reason;
     pl_options renderparams_opts = {};
     bool renderparams_changed = false;
+    bool custom_frame_mixer_off = false;
     const struct pl_hook *fsr_hook = nullptr;
     const struct pl_hook *fsrcnnx_hook_8 = nullptr;
     const struct pl_hook *fsrcnnx_hook_16 = nullptr;

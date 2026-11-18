@@ -2336,7 +2336,17 @@ void StreamSession::PushHapticsFrame(uint8_t *buf, size_t buf_size)
 		return;
 	}
 
-	if (SDL_QueueAudio(haptics_output, cvt.buf, cvt.len_cvt) < 0)
+	// Keep late vibration from playing long after a transport stall.
+	// Based on chiaki-ng's 60 ms software-queue limit (31a066016007).
+	if (cvt.len_cvt <= 0)
+		return;
+	const auto haptic = rcp::planDualSenseHaptics(SDL_GetQueuedAudioSize(haptics_output),
+		static_cast<size_t>(cvt.len_cvt));
+	if (!haptic.bytes)
+		return;
+	if (haptic.clear_backlog)
+		SDL_ClearQueuedAudio(haptics_output);
+	if (SDL_QueueAudio(haptics_output, cvt.buf + haptic.offset, static_cast<Uint32>(haptic.bytes)) < 0)
 	{
 		CHIAKI_LOGE(log.GetChiakiLog(), "Failed to submit haptics audio to device: %s", SDL_GetError());
 		return;

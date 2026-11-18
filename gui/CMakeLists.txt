@@ -26,6 +26,7 @@ set(SOURCE_FILES
 	src/discoverymanager.cpp
 	include/streamsession.h
 	include/rcp/mouse_look.h
+	include/rcp/render_policy.h
 	include/rcp/audio_queue.h
 	src/streamsession.cpp
 	include/sessionlog.h

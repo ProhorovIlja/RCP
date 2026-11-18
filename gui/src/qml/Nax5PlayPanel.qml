@@ -148,7 +148,7 @@ Rectangle {
                 }
 
                 CheckBox {
-                    text: qsTr("Меньше задержка · короткая очередь")
+                    text: qsTr("Меньше задержка · без смешивания кадров")
                     checked: Chiaki.settings.rcpLowLatency
                     onToggled: Chiaki.settings.rcpLowLatency = checked
                 }

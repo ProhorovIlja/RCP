@@ -93,13 +93,4 @@ inline int movementAxis(bool negative, bool positive, bool diagonal)
 {
     return (static_cast<int>(positive) - static_cast<int>(negative)) * (diagonal ? 23169 : 32767);
 }
-
-inline int renderQueueLimit(int configured, bool low_latency, bool pending, double average)
-{
-    // A two-frame cap preserves the render path's minimum while preventing extra buffering.
-    if (low_latency)
-        return 2;
-    const int depth = (std::max)(configured, 2);
-    return depth + (pending || average >= depth - 0.25 ? 1 : 0);
-}
 }

@@ -4,6 +4,7 @@
 #include "chiaki/log.h"
 #include "chiaki/time.h"
 #include "streamsession.h"
+#include "rcp/render_policy.h"
 
 #include <qpa/qplatformnativeinterface.h>
 
@@ -661,6 +662,8 @@ void QmlMainWindow::presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost, F
         }
         if (need_reset)
             storeResetSeedFromPendingFrame(reset_seed_capture_generation.loadAcquire());
+        else if (stored_pending && rcp_low_latency.loadAcquire() != 0)
+            scheduleDecodedFrameUpdate();
         return;
     }
 
@@ -720,7 +723,7 @@ void QmlMainWindow::presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost, F
             snapshotPendingFrame();
         if (frame.frame)
             av_frame_free(&frame.frame);
-        scheduleUpdate();
+        scheduleDecodedFrameUpdate();
         return;
     }
 
@@ -767,7 +770,7 @@ void QmlMainWindow::presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost, F
             setCursor(Qt::BlankCursor);
         emit hasVideoChanged();
     }
-    scheduleUpdate();
+    scheduleDecodedFrameUpdate();
 }
 
 void QmlMainWindow::resetPlaceboQueue()
@@ -873,6 +876,8 @@ void QmlMainWindow::updatePendingFrameAge(double age)
     double clamped = qMax(age, 0.0);
     {
         QMutexLocker locker(&pending_frame_age_mutex);
+        if (pending_frame_age == clamped)
+            return;
         pending_frame_age = clamped;
     }
     emit pendingFrameAgeChanged();
@@ -1024,11 +1029,8 @@ void QmlMainWindow::refreshPendingFrameAge()
     uint64_t stored_us = 0;
     {
         QMutexLocker locker(&pending_frame_mutex);
-        if (!pending_frame) {
-            updatePendingFrameAge(0.0);
-            return;
-        }
-        stored_us = pending_frame_stored_us;
+        if (pending_frame)
+            stored_us = pending_frame_stored_us;
     }
 
     double age = 0.0;
@@ -1963,6 +1965,19 @@ void QmlMainWindow::scheduleUpdate()
     }
 }
 
+void QmlMainWindow::scheduleDecodedFrameUpdate()
+{
+    // Frame delivery runs on the window thread. Use the same single-shot
+    // timer and render-scheduled guard as UI updates so bursts coalesce.
+    Q_ASSERT(QThread::currentThread() == thread());
+    if (rcp_low_latency.loadAcquire() == 0 || !isExposed()) {
+        scheduleUpdate();
+        return;
+    }
+    if (rcp::expeditedFrameTimerNeeded(update_timer->isActive(), update_timer->remainingTime()))
+        update_timer->start(0);
+}
+
 void QmlMainWindow::updatePlacebo()
 {
     renderparams_changed = true;
@@ -2332,6 +2347,7 @@ void QmlMainWindow::render()
         if (renderparams_changed) {
             renderparams_changed = false;
             QMap<QString, QString> paramsData = settings->GetPlaceboValues();
+            custom_frame_mixer_off = paramsData.value(QStringLiteral("frame_mixer")) == QLatin1String("none");
             QMapIterator<QString, QString> i(paramsData);
             bool invalid_render_params = false;
             {
@@ -2363,7 +2379,10 @@ void QmlMainWindow::render()
     }
 
     struct pl_render_params params = *render_params;
-    if (!params.frame_mixer)
+    const bool custom_mixer_off = video_preset == VideoPreset::Custom && custom_frame_mixer_off;
+    if (!rcp::useFrameMixing(rcp_low_latency.loadAcquire() != 0, custom_mixer_off))
+        params.frame_mixer = nullptr;
+    else if (!params.frame_mixer)
         params.frame_mixer = pl_find_filter_config("oversample", PL_FILTER_FRAME_MIXING);
 
     const bool has_settings = settings != nullptr;

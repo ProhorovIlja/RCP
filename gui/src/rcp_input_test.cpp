@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 #include "rcp/mouse_look.h"
+#include "rcp/render_policy.h"
 
 #include <iostream>
 
@@ -58,6 +59,12 @@ int main()
     expect(rcp::movementAxis(true, true, false) == 0, "opposite movement keys cancel");
     expect(rcp::movementAxis(false, true, false) == 32767, "cardinal movement uses full magnitude");
     expect(rcp::movementAxis(true, false, true) == -23169, "diagonal movement is normalized");
+    expect(rcp::useFrameMixing(false, false), "normal render mode keeps the current mixer path");
+    expect(!rcp::useFrameMixing(true, false), "low latency cannot reinstate an automatic frame mixer");
+    expect(!rcp::useFrameMixing(false, true), "explicitly disabled custom mixer is honored");
+    expect(rcp::expeditedFrameTimerNeeded(false, -1), "new frame wakes an idle timer");
+    expect(rcp::expeditedFrameTimerNeeded(true, 4), "new frame brings a refresh-paced timer forward");
+    expect(!rcp::expeditedFrameTimerNeeded(true, 0), "zero-delay timer is already queued");
     expect(rcp::renderQueueLimit(2, false, false, 0.0) == 2, "default queue depth is unchanged");
     expect(rcp::renderQueueLimit(2, false, true, 0.0) == 3, "normal mode still adapts to backlog");
     expect(rcp::renderQueueLimit(5, false, false, 4.9) == 6, "normal mode honors custom queue depth");
