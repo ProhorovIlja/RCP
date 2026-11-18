@@ -28,6 +28,7 @@ set(SOURCE_FILES
 	include/rcp/mouse_look.h
 	include/rcp/render_policy.h
 	include/rcp/audio_queue.h
+	include/rcp/audio_pull.h
 	src/streamsession.cpp
 	include/sessionlog.h
 	src/sessionlog.cpp
@@ -276,6 +277,13 @@ if(CHIAKI_ENABLE_TESTS)
     target_include_directories(rcp-audio-unit PRIVATE include)
     target_compile_features(rcp-audio-unit PRIVATE cxx_std_17)
     add_test(NAME rcp-audio COMMAND rcp-audio-unit)
+
+    add_executable(rcp-audio-pull-smoke src/rcp_audio_pull_smoke.cpp)
+    target_include_directories(rcp-audio-pull-smoke PRIVATE include)
+    target_compile_features(rcp-audio-pull-smoke PRIVATE cxx_std_17)
+    target_link_libraries(rcp-audio-pull-smoke PRIVATE SDL2::SDL2)
+    add_test(NAME rcp-audio-pull-smoke COMMAND rcp-audio-pull-smoke)
+    set_tests_properties(rcp-audio-pull-smoke PROPERTIES TIMEOUT 12)
 
 	add_executable(nax5-auth-unit
 		src/nax5/nax5apiconfig.cpp

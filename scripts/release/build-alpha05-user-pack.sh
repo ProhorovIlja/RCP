@@ -105,7 +105,7 @@ cmake --build "$BUILD" --config Release --target rcp-d3d11-lab
 echo "building chiaki..."
 cmake --build "$BUILD" --config Release --target chiaki
 echo "building unit tests..."
-cmake --build "$BUILD" --config Release --target nax5-auth-unit nax5-session-unit nax5-connection-unit nax5-telemetry-unit rcp-input-unit rcp-audio-unit rcp-feedback-replay
+cmake --build "$BUILD" --config Release --target nax5-auth-unit nax5-session-unit nax5-connection-unit nax5-telemetry-unit rcp-input-unit rcp-audio-unit rcp-audio-pull-smoke rcp-feedback-replay
 
 "$BUILD/gui/nax5-auth-unit.exe"
 "$BUILD/gui/nax5-session-unit.exe"
@@ -113,7 +113,7 @@ cmake --build "$BUILD" --config Release --target nax5-auth-unit nax5-session-uni
 "$BUILD/gui/nax5-telemetry-unit.exe"
 "$BUILD/gui/rcp-input-unit.exe"
 "$BUILD/gui/rcp-audio-unit.exe"
-ctest --test-dir "$BUILD" -C Release -R '^rcp-feedback-replay$' --no-tests=error -V
+ctest --test-dir "$BUILD" -C Release -R '^(rcp-feedback-replay|rcp-audio-pull-smoke)$' --no-tests=error -V
 echo "unit tests passed"
 
 test -f "$EXE"
@@ -158,6 +158,7 @@ rm -f "$USER_DIR"/ALPHA0*.md
 cp -f "$ROOT/docs/acceptance/ALPHA05-USER-TEST.md" "$USER_DIR/ALPHA05-USER-TEST.md"
 cp -f "$ROOT/scripts/release/README-USER-alpha05.txt" "$USER_DIR/README-USER.txt"
 cp -f "$ROOT/docs/RCP-QUICKSTART.md" "$USER_DIR/RCP-QUICKSTART.md"
+cp -f "$ROOT/scripts/release/start-rcp-pull-audio.cmd" "$USER_DIR/start-rcp-pull-audio.cmd"
 cp -f "$ROOT/docs/RCP-D3D11-LAB.md" "$USER_DIR/RCP-D3D11-LAB.md"
 cp -f "$BUILD/gui/rcp-d3d11-lab.exe" "$USER_DIR/rcp-d3d11-lab.exe"
 lab_demo_args=(
@@ -187,7 +188,7 @@ cp -a "$ROOT/LICENSES" "$USER_DIR/"
   echo "launch: NAX5.exe (Inno Setup installer) -> chiaki.exe"
   echo "launcher: ${LAUNCHER_EXE##*/}"
   echo "installer: ${INSTALLER##*/}"
-  echo "unit tests: nax5-auth-unit, nax5-session-unit, nax5-connection-unit, nax5-telemetry-unit, rcp-input-unit, rcp-audio-unit, rcp-feedback-replay passed"
+  echo "unit tests: nax5-auth-unit, nax5-session-unit, nax5-connection-unit, nax5-telemetry-unit, rcp-input-unit, rcp-audio-unit, rcp-audio-pull-smoke, rcp-feedback-replay passed"
   echo "clean launch smoke skipped: ${NAX5_SKIP_LAUNCH_SMOKE:-0}"
   echo "features: login, reserve, auto Remote Play, process log, client-reports, session hardening, first-frame replay tracking"
 } > "$USER_DIR/BUILD-INFO.txt"

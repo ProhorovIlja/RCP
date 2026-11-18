@@ -31,6 +31,7 @@
 #include "sessionlog.h"
 #include "controllermanager.h"
 #include "settings.h"
+#include "rcp/audio_pull.h"
 
 #include <QObject>
 #include <QImage>
@@ -267,6 +268,13 @@ class StreamSession : public QObject
 		size_t audio_out_sample_size;
 		unsigned int audio_out_pcm_rate = 0;
 		QAtomicInteger<quint32> audio_output_queue_resets{0};
+		QAtomicInteger<unsigned int> audio_out_accepting{0};
+		QAtomicInteger<unsigned int> audio_out_pull_active{0};
+		QMutex audio_out_pull_mutex;
+		rcp::AudioPullBuffer audio_out_pull;
+		QAtomicInteger<quint32> audio_out_pull_starves{0};
+		QAtomicInteger<quint32> audio_out_pull_busy{0};
+		QAtomicInteger<quint64> audio_out_pull_discarded{0};
 		QMutex audio_out_ring_mutex;
 		QByteArray audio_out_ring_buf;
 		size_t audio_out_ring_read_pos = 0;
@@ -310,6 +318,8 @@ class StreamSession : public QObject
 		void StopAudioOutDrainThread();
 		void AudioOutDrainThreadMain();
 		void QueueAudioOutData(const char *data, size_t data_size);
+		void CloseAudioOutput();
+		static void SDLCALL PullAudioCallback(void *userdata, Uint8 *pcm, int length);
 		void DrainAudioOutRingBuffer(QByteArray &audio_chunk);
 		void PushAudioFrame(int16_t *buf, size_t samples_count);
 		void PushHapticsFrame(uint8_t *buf, size_t buf_size);
